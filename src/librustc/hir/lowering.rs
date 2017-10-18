@@ -727,7 +727,7 @@ impl<'a> LoweringContext<'a> {
                 hir::TyTraitObject(bounds, lifetime_bound)
             }
             TyKind::ImplTrait(ref bounds) => {
-                hir::TyImplTrait(self.lower_bounds(bounds))
+                hir::TyImplTraitExistential(self.lower_bounds(bounds))
             }
             TyKind::Mac(_) => panic!("TyMac should have been expanded by now."),
         };

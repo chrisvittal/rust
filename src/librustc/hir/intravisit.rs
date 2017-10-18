@@ -591,7 +591,7 @@ pub fn walk_ty<'v, V: Visitor<'v>>(visitor: &mut V, typ: &'v Ty) {
             }
             visitor.visit_lifetime(lifetime);
         }
-        TyImplTrait(ref bounds) => {
+        TyImplTraitExistential(ref bounds) => {
             walk_list!(visitor, visit_ty_param_bound, bounds);
         }
         TyTypeof(expression) => {
