@@ -125,7 +125,7 @@ pub trait Resolver {
 
 #[derive(Clone, Copy, Debug)]
 enum TyLoweringCtx {
-    FnParameter,
+    FnParameter(DefId),
     FnReturnTy,
     Other
 }
@@ -136,9 +136,17 @@ impl TyLoweringCtx {
         use self::ImplTraitTreatment::*;
 
         match self {
-            FnParameter => Universal,
+            FnParameter(_) => Universal,
             FnReturnTy => Existential,
             Other => Disallowed,
+        }
+    }
+
+    fn def_id(self) -> DefId {
+        use self::TyLoweringCtx::*;
+        match self {
+            FnParameter(def_id) => def_id,
+            _ => panic!("def_id should not be called on anything other than an FnParameter"),
         }
     }
 }
@@ -767,12 +775,14 @@ impl<'a> LoweringContext<'a> {
                 match tylctx.impl_trait_treatment() {
                     ImplTraitTreatment::Existential =>
                         hir::TyImplTraitExistential(self.lower_bounds(bounds)),
-                    ImplTraitTreatment::Universal | ImplTraitTreatment::Disallowed => {
+                    ImplTraitTreatment::Universal =>
+                        hir::TyImplTraitUniversal(tylctx.def_id(), self.lower_bounds(bounds)),
+                    ImplTraitTreatment::Disallowed => {
                         // For now, treat Universal as the same as disallowed since it's not
                         // done yet.
                         span_err!(self.sess, t.span, E0562,
-                                          "`impl Trait` not allowed outside of function \
-                                           and inherent method return types");
+                                  "`impl Trait` not allowed outside of function \
+                                  and inherent method return types");
                         hir::TyErr
                     }
                 }
@@ -1104,7 +1114,11 @@ impl<'a> LoweringContext<'a> {
     fn lower_fn_decl(&mut self, decl: &FnDecl) -> P<hir::FnDecl> {
         P(hir::FnDecl {
             inputs: decl.inputs.iter()
-                .map(|arg| self.lower_ty(&arg.ty, TyLoweringCtx::FnParameter)).collect(),
+                .map(|arg| {
+                    // FIXME causes ICE compliling stage 1, need to find a better solution
+                    let def_id = self.resolver.definitions().local_def_id(arg.id);
+                    self.lower_ty(&arg.ty, TyLoweringCtx::FnParameter(def_id))
+                }).collect(),
             output: match decl.output {
                 FunctionRetTy::Ty(ref ty) =>
                     hir::Return(self.lower_ty(ty, TyLoweringCtx::FnReturnTy)),

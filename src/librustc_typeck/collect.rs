@@ -880,32 +880,32 @@ fn generics_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
     let mut allow_defaults = false;
 
     let no_generics = hir::Generics::empty();
-    let ast_generics = match node {
+    let (ast_generics, _fake_defs) = match node {
         NodeTraitItem(item) => {
             match item.node {
-                TraitItemKind::Method(ref sig, _) => &sig.generics,
-                _ => &no_generics
+                TraitItemKind::Method(ref sig, _) => (&sig.generics, Some(&sig.decl.inputs)),
+                _ => (&no_generics, None)
             }
         }
 
         NodeImplItem(item) => {
             match item.node {
-                ImplItemKind::Method(ref sig, _) => &sig.generics,
-                _ => &no_generics
+                ImplItemKind::Method(ref sig, _) => (&sig.generics, Some(&sig.decl.inputs)),
+                _ => (&no_generics, None)
             }
         }
 
         NodeItem(item) => {
             match item.node {
-                ItemFn(.., ref generics, _) |
-                ItemImpl(_, _, _, ref generics, ..) => generics,
+                ItemFn(ref decl, .., ref generics, _) => (generics, Some(&decl.inputs)),
+                ItemImpl(_, _, _, ref generics, ..) => (generics, None),
 
                 ItemTy(_, ref generics) |
                 ItemEnum(_, ref generics) |
                 ItemStruct(_, ref generics) |
                 ItemUnion(_, ref generics) => {
                     allow_defaults = true;
-                    generics
+                    (generics, None)
                 }
 
                 ItemTrait(_, ref generics, ..) => {
@@ -926,21 +926,21 @@ fn generics_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                     });
 
                     allow_defaults = true;
-                    generics
+                    (generics, None)
                 }
 
-                _ => &no_generics
+                _ => (&no_generics, None)
             }
         }
 
         NodeForeignItem(item) => {
             match item.node {
-                ForeignItemStatic(..) => &no_generics,
-                ForeignItemFn(_, _, ref generics) => generics
+                ForeignItemStatic(..) => (&no_generics, None),
+                ForeignItemFn(ref decl, _, ref generics) => (generics, Some(&decl.inputs)),
             }
         }
 
-        _ => &no_generics
+        _ => (&no_generics, None)
     };
 
     let has_self = opt_self.is_some();
