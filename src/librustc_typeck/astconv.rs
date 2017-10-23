@@ -1037,6 +1037,12 @@ impl<'o, 'gcx: 'tcx, 'tcx> AstConv<'gcx, 'tcx>+'o {
                 let def_id = tcx.hir.local_def_id(ast_ty.id);
                 tcx.mk_anon(def_id, Substs::identity_for_item(tcx, def_id))
             }
+            hir::TyImplTraitUniversal(fn_def_id, _) => {
+                let impl_trait_def_id = tcx.hir.local_def_id(ast_ty.id);
+                let generics = tcx.generics_of(fn_def_id);
+                let index = generics.type_param_to_index[&impl_trait_def_id.index];
+                tcx.mk_param(index, tcx.hir.name(ast_ty.id))
+            }
             hir::TyPath(hir::QPath::Resolved(ref maybe_qself, ref path)) => {
                 debug!("ast_ty_to_ty: maybe_qself={:?} path={:?}", maybe_qself, path);
                 let opt_self_ty = maybe_qself.as_ref().map(|qself| {
