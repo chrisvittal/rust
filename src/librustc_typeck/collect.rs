@@ -873,7 +873,8 @@ fn generics_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
     let mut allow_defaults = false;
 
     let no_generics = hir::Generics::empty();
-    let (ast_generics, _fake_defs) = match node {
+    // FIXME Rename this
+    let (ast_generics, fake_defs) = match node {
         NodeTraitItem(item) => {
             match item.node {
                 TraitItemKind::Method(ref sig, _) => (&sig.generics, Some(&sig.decl.inputs)),
@@ -991,7 +992,27 @@ fn generics_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
             synthetic: p.synthetic,
         }
     });
-    let mut types: Vec<_> = opt_self.into_iter().chain(types).collect();
+    // NB: ast_generics.ty_params.len() should be the same size as types
+    let other_type_start = type_start + ast_generics.ty_params.len() as u32;
+    let other_types = fake_defs.iter().map(|it| it.iter().filter(|ty| {
+            if let hir::TyImplTraitUniversal(..) = ty.node {
+                true
+            } else {
+                false
+            }
+        }).enumerate().map(|(i, ty)| {
+            ty::TypeParameterDef {
+                index: other_type_start + i as u32,
+                name: tcx.hir.name(ty.id) /* FIXME */,
+                def_id: tcx.hir.local_def_id(ty.id),
+                has_default: false,
+                object_lifetime_default: rl::Set1::Empty,
+                pure_wrt_drop: false,
+                synthetic: Some(SyntheticTyParamKind::ImplTrait),
+            }
+        })
+    ).flat_map(|a| a);
+    let mut types: Vec<_> = opt_self.into_iter().chain(types).chain(other_types).collect();
 
     // provide junk type parameter defs - the only place that
     // cares about anything but the length is instantiation,
