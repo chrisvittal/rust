@@ -1373,30 +1373,32 @@ fn explicit_predicates_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
 
     let icx = ItemCtxt::new(tcx, def_id);
     let no_generics = hir::Generics::empty();
-    let ast_generics = match node {
+    // FIXME Better name
+    let (ast_generics, fake_defs) = match node {
         NodeTraitItem(item) => {
             match item.node {
-                TraitItemKind::Method(ref sig, _) => &sig.generics,
-                _ => &no_generics
+                TraitItemKind::Method(ref sig, _) => (&sig.generics, Some(&sig.decl.inputs)),
+                _ => (&no_generics, None)
             }
         }
 
         NodeImplItem(item) => {
             match item.node {
-                ImplItemKind::Method(ref sig, _) => &sig.generics,
-                _ => &no_generics
+                ImplItemKind::Method(ref sig, _) => (&sig.generics, Some(&sig.decl.inputs)),
+                _ => (&no_generics, None)
             }
         }
 
         NodeItem(item) => {
             match item.node {
-                ItemFn(.., ref generics, _) |
+                ItemFn(ref decl, .., ref generics, _) => (generics, Some(&decl.inputs)),
+
                 ItemImpl(_, _, _, ref generics, ..) |
                 ItemTy(_, ref generics) |
                 ItemEnum(_, ref generics) |
                 ItemStruct(_, ref generics) |
                 ItemUnion(_, ref generics) => {
-                    generics
+                    (generics, None)
                 }
 
                 ItemTrait(_, ref generics, .., ref items) => {
@@ -1404,17 +1406,17 @@ fn explicit_predicates_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                         def_id,
                         substs: Substs::identity_for_item(tcx, def_id)
                     }, items));
-                    generics
+                    (generics, None)
                 }
 
-                _ => &no_generics
+                _ => (&no_generics, None)
             }
         }
 
         NodeForeignItem(item) => {
             match item.node {
-                ForeignItemStatic(..) => &no_generics,
-                ForeignItemFn(_, _, ref generics) => generics
+                ForeignItemStatic(..) => (&no_generics, None),
+                ForeignItemFn(ref decl, _, ref generics) => (generics, Some(&decl.inputs))
             }
         }
 
@@ -1432,7 +1434,7 @@ fn explicit_predicates_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
             };
         }
 
-        _ => &no_generics
+        _ => (&no_generics, None)
     };
 
     let generics = tcx.generics_of(def_id);
@@ -1561,6 +1563,22 @@ fn explicit_predicates_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
 
             bounds.predicates(tcx, assoc_ty).into_iter()
         }))
+    }
+
+    // Add predicates from argument position impl trait
+    // FIXME: Is this correct?
+    if let Some(inputs) = fake_defs {
+        for ty in inputs {
+            if let hir::TyImplTraitUniversal(_, ref bounds) = ty.node {
+                let name = tcx.hir.name(ty.id);
+                let param_ty = ty::ParamTy::new(index, name).to_ty(tcx);
+                index += 1;
+                let bounds = compute_bounds(&icx, param_ty, bounds,
+                                            SizedByDefault::Yes,
+                                            ty.span);
+                predicates.extend(bounds.predicates(tcx, param_ty));
+            }
+        }
     }
 
     // Subtle: before we store the predicates into the tcx, we
