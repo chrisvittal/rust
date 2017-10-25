@@ -1094,8 +1094,11 @@ impl<'a> LoweringContext<'a> {
                     self.lower_ty(&arg.ty, ImplTraitContext::Disallowed)
                 }).collect(),
             output: match decl.output {
-                FunctionRetTy::Ty(ref ty) =>
-                    hir::Return(self.lower_ty(ty, ImplTraitContext::Existential)),
+                FunctionRetTy::Ty(ref ty) => if let Some(_) = fn_def_id {
+                    hir::Return(self.lower_ty(ty, ImplTraitContext::Existential))
+                } else {
+                    hir::Return(self.lower_ty(ty, ImplTraitContext::Disallowed))
+                },
                 FunctionRetTy::Default(span) => hir::DefaultReturn(span),
             },
             variadic: decl.variadic,
