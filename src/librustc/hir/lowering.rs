@@ -662,12 +662,11 @@ impl<'a> LoweringContext<'a> {
         }
     }
 
-    fn lower_ty_binding(&mut self, b: &TypeBinding) -> hir::TypeBinding {
+    fn lower_ty_binding(&mut self, b: &TypeBinding, itctx: ImplTraitContext) -> hir::TypeBinding {
         hir::TypeBinding {
             id: self.lower_node_id(b.id).node_id,
             name: self.lower_ident(b.ident),
-            // NB: causes run-pass/impl-trait/example-calendar.rs to fail
-            ty: self.lower_ty(&b.ty, ImplTraitContext::Existential),
+            ty: self.lower_ty(&b.ty, itctx),
             span: b.span,
         }
     }
@@ -873,7 +872,12 @@ impl<'a> LoweringContext<'a> {
                     n
                 });
                 self.lower_path_segment(p.span, segment, param_mode, num_lifetimes,
-                                        parenthesized_generic_args)
+                                        parenthesized_generic_args,
+                                        // FIXME: changing this currently causes tests
+                                        // run-pass/impl-trait/xcrate.rs and
+                                        // run-pass/impl-trait/example-calendar.rs to
+                                        // fail. Probably need to tighten this up.
+                                        ImplTraitContext::Existential)
             }).collect(),
             span: p.span,
         });
@@ -909,7 +913,8 @@ impl<'a> LoweringContext<'a> {
         // * final path is `<<<std::vec::Vec<T>>::IntoIter>::Item>::clone`
         for (i, segment) in p.segments.iter().enumerate().skip(proj_start) {
             let segment = P(self.lower_path_segment(p.span, segment, param_mode, 0,
-                                                    ParenthesizedGenericArgs::Warn));
+                                                    ParenthesizedGenericArgs::Warn,
+                                                    ImplTraitContext::Disallowed));
             let qpath = hir::QPath::TypeRelative(ty, segment);
 
             // It's finished, return the extension of the right node type.
@@ -943,7 +948,8 @@ impl<'a> LoweringContext<'a> {
             def: self.expect_full_def(id),
             segments: segments.map(|segment| {
                 self.lower_path_segment(p.span, segment, param_mode, 0,
-                                        ParenthesizedGenericArgs::Err)
+                                        ParenthesizedGenericArgs::Err,
+                                        ImplTraitContext::Disallowed)
             }).chain(name.map(|name| hir::PathSegment::from_name(name)))
               .collect(),
             span: p.span,
@@ -964,16 +970,18 @@ impl<'a> LoweringContext<'a> {
                           segment: &PathSegment,
                           param_mode: ParamMode,
                           expected_lifetimes: usize,
-                          parenthesized_generic_args: ParenthesizedGenericArgs)
+                          parenthesized_generic_args: ParenthesizedGenericArgs,
+                          itctx: ImplTraitContext)
                           -> hir::PathSegment {
         let (mut parameters, infer_types) = if let Some(ref parameters) = segment.parameters {
             let msg = "parenthesized parameters may only be used with a trait";
             match **parameters {
                 PathParameters::AngleBracketed(ref data) => {
-                    self.lower_angle_bracketed_parameter_data(data, param_mode)
+                    self.lower_angle_bracketed_parameter_data(data, param_mode, itctx)
                 }
                 PathParameters::Parenthesized(ref data) => match parenthesized_generic_args {
-                    ParenthesizedGenericArgs::Ok => self.lower_parenthesized_parameter_data(data),
+                    ParenthesizedGenericArgs::Ok =>
+                        self.lower_parenthesized_parameter_data(data, itctx),
                     ParenthesizedGenericArgs::Warn => {
                         self.sess.buffer_lint(PARENTHESIZED_PARAMS_IN_TYPES_AND_MODULES,
                                               CRATE_NODE_ID, data.span, msg.into());
@@ -987,7 +995,7 @@ impl<'a> LoweringContext<'a> {
                 }
             }
         } else {
-            self.lower_angle_bracketed_parameter_data(&Default::default(), param_mode)
+            self.lower_angle_bracketed_parameter_data(&Default::default(), param_mode, itctx)
         };
 
         if !parameters.parenthesized && parameters.lifetimes.is_empty() {
@@ -1005,19 +1013,21 @@ impl<'a> LoweringContext<'a> {
 
     fn lower_angle_bracketed_parameter_data(&mut self,
                                             data: &AngleBracketedParameterData,
-                                            param_mode: ParamMode)
+                                            param_mode: ParamMode,
+                                            itctx: ImplTraitContext)
                                             -> (hir::PathParameters, bool) {
         let &AngleBracketedParameterData { ref lifetimes, ref types, ref bindings, .. } = data;
         (hir::PathParameters {
             lifetimes: self.lower_lifetimes(lifetimes),
-            types: types.iter().map(|ty| self.lower_ty(ty, ImplTraitContext::Disallowed)).collect(),
-            bindings: bindings.iter().map(|b| self.lower_ty_binding(b)).collect(),
+            types: types.iter().map(|ty| self.lower_ty(ty, itctx)).collect(),
+            bindings: bindings.iter().map(|b| self.lower_ty_binding(b, itctx)).collect(),
             parenthesized: false,
         }, types.is_empty() && param_mode == ParamMode::Optional)
     }
 
     fn lower_parenthesized_parameter_data(&mut self,
-                                          data: &ParenthesizedParameterData)
+                                          data: &ParenthesizedParameterData,
+                                          itctx: ImplTraitContext)
                                           -> (hir::PathParameters, bool) {
         let &ParenthesizedParameterData { ref inputs, ref output, span } = data;
         let inputs = inputs.iter().map(|ty| {
@@ -1034,8 +1044,7 @@ impl<'a> LoweringContext<'a> {
             bindings: hir_vec![hir::TypeBinding {
                 id: self.next_id().node_id,
                 name: Symbol::intern(FN_OUTPUT_NAME),
-                // NB: changing this causes run-pass/impl-trait/xcrate.rs to fail
-                ty: output.as_ref().map(|ty| self.lower_ty(&ty, ImplTraitContext::Existential))
+                ty: output.as_ref().map(|ty| self.lower_ty(&ty, itctx))
                                    .unwrap_or_else(|| mk_tup(self, hir::HirVec::new(), span)),
                 span: output.as_ref().map_or(span, |ty| ty.span),
             }],
@@ -2058,7 +2067,8 @@ impl<'a> LoweringContext<'a> {
             }
             ExprKind::MethodCall(ref seg, ref args) => {
                 let hir_seg = self.lower_path_segment(e.span, seg, ParamMode::Optional, 0,
-                                                      ParenthesizedGenericArgs::Err);
+                                                      ParenthesizedGenericArgs::Err,
+                                                      ImplTraitContext::Disallowed);
                 let args = args.iter().map(|x| self.lower_expr(x)).collect();
                 hir::ExprMethodCall(hir_seg, seg.span, args)
             }
