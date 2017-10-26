@@ -751,9 +751,7 @@ impl<'a> LoweringContext<'a> {
                     ImplTraitContext::Universal(def_id) =>
                         hir::TyImplTraitUniversal(def_id, self.lower_bounds(bounds)),
                     ImplTraitContext::Disallowed => {
-                        span_err!(self.sess, t.span, E0562,
-                                  "`impl Trait` not allowed outside of function \
-                                  and inherent method return types");
+                        self.impl_trait_err(t.span);
                         hir::TyErr
                     }
                 }
@@ -1639,9 +1637,7 @@ impl<'a> LoweringContext<'a> {
             TraitItemKind::Method(ref sig, ref default) => {
                 if let FunctionRetTy::Ty(ref ty) = sig.decl.output {
                     if ty.node.is_impl_trait() {
-                        span_err!(self.sess, ty.span, E0562,
-                                  "`impl Trait` not allowed outside of function \
-                                  and inherent method return types");
+                        self.impl_trait_err(ty.span);
                     }
                 }
                 (hir::AssociatedItemKind::Method {
@@ -3093,6 +3089,13 @@ impl<'a> LoweringContext<'a> {
             span,
             name: hir::LifetimeName::Implicit,
         }
+    }
+
+    /// Emits an E0562, `impl Trait` disallowed error
+    fn impl_trait_err(&self, span: Span) {
+        span_err!(self.sess, span, E0562,
+                  "`impl Trait` not allowed outside of function \
+                  and inherent method return types");
     }
 }
 
