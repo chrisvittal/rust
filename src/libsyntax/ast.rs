@@ -1438,6 +1438,18 @@ pub enum TyKind {
     Err,
 }
 
+impl TyKind {
+    pub fn is_impl_trait(&self) -> bool {
+        use self::TyKind::*;
+        match *self {
+            ImplTrait(_) => true,
+            Slice(ref ty) | Array(ref ty, _) | Paren(ref ty) => ty.node.is_impl_trait(),
+            Tup(ref tys) => tys.iter().any(|ty| ty.node.is_impl_trait()),
+            _ => false,
+        }
+    }
+}
+
 /// Syntax used to declare a trait object.
 #[derive(Clone, Copy, PartialEq, Eq, RustcEncodable, RustcDecodable, Hash, Debug)]
 pub enum TraitObjectSyntax {

@@ -873,10 +873,10 @@ impl<'a> LoweringContext<'a> {
                 });
                 self.lower_path_segment(p.span, segment, param_mode, num_lifetimes,
                                         parenthesized_generic_args,
-                                        // FIXME: changing this currently causes tests
+                                        // FIXME(cvittal): changing this currently causes tests
                                         // run-pass/impl-trait/xcrate.rs and
-                                        // run-pass/impl-trait/example-calendar.rs to
-                                        // fail. Probably need to tighten this up.
+                                        // run-pass/impl-trait/example-calendar.rs to fail.
+                                        // Probably need to tighten this up.
                                         ImplTraitContext::Existential)
             }).collect(),
             span: p.span,
@@ -1635,6 +1635,13 @@ impl<'a> LoweringContext<'a> {
                 (hir::AssociatedItemKind::Type, default.is_some())
             }
             TraitItemKind::Method(ref sig, ref default) => {
+                if let FunctionRetTy::Ty(ref ty) = sig.decl.output {
+                    if ty.node.is_impl_trait() {
+                        span_err!(self.sess, ty.span, E0562,
+                                  "`impl Trait` not allowed outside of function \
+                                  and inherent method return types");
+                    }
+                }
                 (hir::AssociatedItemKind::Method {
                     has_self: sig.decl.has_self(),
                  }, default.is_some())
