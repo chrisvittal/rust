@@ -1009,7 +1009,7 @@ fn generics_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
         }).enumerate().map(|(i, ty)| {
             ty::TypeParameterDef {
                 index: other_type_start + i as u32,
-                name: tcx.hir.name(ty.id) /* FIXME */,
+                name: keywords::Invalid.name() /* FIXME(chrisvittal) maybe make not Invalid */,
                 def_id: tcx.hir.local_def_id(ty.id),
                 has_default: false,
                 object_lifetime_default: rl::Set1::Empty,
@@ -1570,7 +1570,8 @@ fn explicit_predicates_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
     if let Some(inputs) = fake_defs {
         for ty in inputs {
             if let hir::TyImplTraitUniversal(_, ref bounds) = ty.node {
-                let name = tcx.hir.name(ty.id);
+                // FIXME(chrisvittal) maybe make not Invalid in the future
+                let name = keywords::Invalid.name();
                 let param_ty = ty::ParamTy::new(index, name).to_ty(tcx);
                 index += 1;
                 let bounds = compute_bounds(&icx, param_ty, bounds,
