@@ -1548,7 +1548,7 @@ impl<'a> LoweringContext<'a> {
                            ref ty,
                            ref impl_items) => {
                 let new_impl_items = impl_items.iter()
-                                               .map(|item| self.lower_impl_item_ref(item))
+                                               .map(|item| self.lower_impl_item_ref(item, ifce))
                                                .collect();
                 let ifce = ifce.as_ref().map(|trait_ref| self.lower_trait_ref(trait_ref));
 
@@ -1691,7 +1691,7 @@ impl<'a> LoweringContext<'a> {
         // [1] since `default impl` is not yet implemented, this is always true in impls
     }
 
-    fn lower_impl_item_ref(&mut self, i: &ImplItem) -> hir::ImplItemRef {
+    fn lower_impl_item_ref(&mut self, i: &ImplItem, ifce: &Option<TraitRef>) -> hir::ImplItemRef {
         hir::ImplItemRef {
             id: hir::ImplItemId { node_id: i.id },
             name: self.lower_ident(i.ident),
@@ -1701,8 +1701,17 @@ impl<'a> LoweringContext<'a> {
             kind: match i.node {
                 ImplItemKind::Const(..) => hir::AssociatedItemKind::Const,
                 ImplItemKind::Type(..) => hir::AssociatedItemKind::Type,
-                ImplItemKind::Method(ref sig, _) => hir::AssociatedItemKind::Method {
-                    has_self: sig.decl.has_self(),
+                ImplItemKind::Method(ref sig, _) => {
+                    // If this is an implemetation of a trait, then return position impl
+                    // Trait is not allowed.
+                    if let (&Some(_), &FunctionRetTy::Ty(ref ty)) = (ifce, &sig.decl.output) {
+                        if ty.node.is_impl_trait() {
+                            self.impl_trait_err(ty.span);
+                        }
+                    }
+                    hir::AssociatedItemKind::Method {
+                        has_self: sig.decl.has_self(),
+                    }
                 },
                 ImplItemKind::Macro(..) => unimplemented!(),
             },
