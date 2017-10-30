@@ -875,6 +875,9 @@ impl<'a> LoweringContext<'a> {
                                         // run-pass/impl-trait/xcrate.rs and
                                         // run-pass/impl-trait/example-calendar.rs to fail.
                                         // Probably need to tighten this up.
+                                        // NOTE 2017-10-29, this also causes the test
+                                        // compile-fail/impl-trait/disallowed.rs to not emit a
+                                        // required error
                                         ImplTraitContext::Existential)
             }).collect(),
             span: p.span,
