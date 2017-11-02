@@ -703,7 +703,7 @@ impl<'a> LoweringContext<'a> {
             }
             TyKind::Path(ref qself, ref path) => {
                 let id = self.lower_node_id(t.id);
-                let qpath = self.lower_qpath(t.id, qself, path, ParamMode::Explicit);
+                let qpath = self.lower_qpath(t.id, qself, path, ParamMode::Explicit, itctx);
                 return self.ty_path(id, t.span, qpath);
             }
             TyKind::ImplicitSelf => {
@@ -728,7 +728,7 @@ impl<'a> LoweringContext<'a> {
                 let bounds = bounds.iter().filter_map(|bound| {
                     match *bound {
                         TraitTyParamBound(ref ty, TraitBoundModifier::None) => {
-                            Some(self.lower_poly_trait_ref(ty))
+                            Some(self.lower_poly_trait_ref(ty, itctx))
                         }
                         TraitTyParamBound(_, TraitBoundModifier::Maybe) => None,
                         RegionTyParamBound(ref lifetime) => {
@@ -747,9 +747,9 @@ impl<'a> LoweringContext<'a> {
             TyKind::ImplTrait(ref bounds) => {
                 match itctx {
                     ImplTraitContext::Existential =>
-                        hir::TyImplTraitExistential(self.lower_bounds(bounds)),
+                        hir::TyImplTraitExistential(self.lower_bounds(bounds, itctx)),
                     ImplTraitContext::Universal(def_id) =>
-                        hir::TyImplTraitUniversal(def_id, self.lower_bounds(bounds)),
+                        hir::TyImplTraitUniversal(def_id, self.lower_bounds(bounds, itctx)),
                     ImplTraitContext::Disallowed => {
                         self.impl_trait_err(t.span);
                         hir::TyErr
@@ -800,10 +800,11 @@ impl<'a> LoweringContext<'a> {
                    id: NodeId,
                    qself: &Option<QSelf>,
                    p: &Path,
-                   param_mode: ParamMode)
+                   param_mode: ParamMode,
+                   itctx: ImplTraitContext)
                    -> hir::QPath {
         let qself_position = qself.as_ref().map(|q| q.position);
-        let qself = qself.as_ref().map(|q| self.lower_ty(&q.ty, ImplTraitContext::Disallowed));
+        let qself = qself.as_ref().map(|q| self.lower_ty(&q.ty, itctx));
 
         let resolution = self.resolver.get_resolution(id)
                                       .unwrap_or(PathResolution::new(Def::Err));
@@ -878,7 +879,7 @@ impl<'a> LoweringContext<'a> {
                                         // NOTE 2017-10-29, this also causes the test
                                         // compile-fail/impl-trait/disallowed.rs to not emit a
                                         // required error
-                                        ImplTraitContext::Existential)
+                                        itctx)
             }).collect(),
             span: p.span,
         });
@@ -915,7 +916,7 @@ impl<'a> LoweringContext<'a> {
         for (i, segment) in p.segments.iter().enumerate().skip(proj_start) {
             let segment = P(self.lower_path_segment(p.span, segment, param_mode, 0,
                                                     ParenthesizedGenericArgs::Warn,
-                                                    ImplTraitContext::Disallowed));
+                                                    itctx));
             let qpath = hir::QPath::TypeRelative(ty, segment);
 
             // It's finished, return the extension of the right node type.
@@ -1031,9 +1032,7 @@ impl<'a> LoweringContext<'a> {
                                           itctx: ImplTraitContext)
                                           -> (hir::PathParameters, bool) {
         let &ParenthesizedParameterData { ref inputs, ref output, span } = data;
-        let inputs = inputs.iter().map(|ty| {
-            self.lower_ty(ty, ImplTraitContext::Disallowed)
-        }).collect();
+        let inputs = inputs.iter().map(|ty| self.lower_ty(ty, itctx)).collect();
         let mk_tup = |this: &mut Self, tys, span| {
             let LoweredNodeId { node_id, hir_id } = this.next_id();
             P(hir::Ty { node: hir::TyTup(tys), id: node_id, hir_id, span })
@@ -1122,10 +1121,11 @@ impl<'a> LoweringContext<'a> {
         })
     }
 
-    fn lower_ty_param_bound(&mut self, tpb: &TyParamBound) -> hir::TyParamBound {
+    fn lower_ty_param_bound(&mut self, tpb: &TyParamBound, itctx: ImplTraitContext)
+                            -> hir::TyParamBound {
         match *tpb {
             TraitTyParamBound(ref ty, modifier) => {
-                hir::TraitTyParamBound(self.lower_poly_trait_ref(ty),
+                hir::TraitTyParamBound(self.lower_poly_trait_ref(ty, itctx),
                                        self.lower_trait_bound_modifier(modifier))
             }
             RegionTyParamBound(ref lifetime) => {
@@ -1144,9 +1144,13 @@ impl<'a> LoweringContext<'a> {
             name = Symbol::gensym("Self");
         }
 
-        let mut bounds = self.lower_bounds(&tp.bounds);
+        let itctx = ImplTraitContext::Universal(self.resolver.definitions().local_def_id(tp.id));
+        // FIXME(cdv) UNIVERSAL
+        let mut bounds = self.lower_bounds(&tp.bounds, itctx);
         if !add_bounds.is_empty() {
-            bounds = bounds.into_iter().chain(self.lower_bounds(add_bounds).into_iter()).collect();
+            bounds = bounds.into_iter().chain(
+                self.lower_bounds(add_bounds, itctx).into_iter()
+            ).collect();
         }
 
         hir::TyParam {
@@ -1268,7 +1272,7 @@ impl<'a> LoweringContext<'a> {
                     bounds: bounds.iter().filter_map(|bound| match *bound {
                         // Ignore `?Trait` bounds, they were copied into type parameters already.
                         TraitTyParamBound(_, TraitBoundModifier::Maybe) => None,
-                        _ => Some(self.lower_ty_param_bound(bound))
+                        _ => Some(self.lower_ty_param_bound(bound, ImplTraitContext::Disallowed))
                     }).collect(),
                     span,
                 })
@@ -1316,8 +1320,8 @@ impl<'a> LoweringContext<'a> {
         }
     }
 
-    fn lower_trait_ref(&mut self, p: &TraitRef) -> hir::TraitRef {
-        let path = match self.lower_qpath(p.ref_id, &None, &p.path, ParamMode::Explicit) {
+    fn lower_trait_ref(&mut self, p: &TraitRef, itctx: ImplTraitContext) -> hir::TraitRef {
+        let path = match self.lower_qpath(p.ref_id, &None, &p.path, ParamMode::Explicit, itctx) {
             hir::QPath::Resolved(None, path) => path.and_then(|path| path),
             qpath => bug!("lower_trait_ref: unexpected QPath `{:?}`", qpath)
         };
@@ -1327,10 +1331,13 @@ impl<'a> LoweringContext<'a> {
         }
     }
 
-    fn lower_poly_trait_ref(&mut self, p: &PolyTraitRef) -> hir::PolyTraitRef {
+    fn lower_poly_trait_ref(&mut self,
+                            p: &PolyTraitRef,
+                            itctx: ImplTraitContext)
+                            -> hir::PolyTraitRef {
         hir::PolyTraitRef {
             bound_lifetimes: self.lower_lifetime_defs(&p.bound_lifetimes),
-            trait_ref: self.lower_trait_ref(&p.trait_ref),
+            trait_ref: self.lower_trait_ref(&p.trait_ref, itctx),
             span: p.span,
         }
     }
@@ -1366,8 +1373,9 @@ impl<'a> LoweringContext<'a> {
         }
     }
 
-    fn lower_bounds(&mut self, bounds: &[TyParamBound]) -> hir::TyParamBounds {
-        bounds.iter().map(|bound| self.lower_ty_param_bound(bound)).collect()
+    fn lower_bounds(&mut self, bounds: &[TyParamBound], itctx: ImplTraitContext)
+                    -> hir::TyParamBounds {
+        bounds.iter().map(|bound| self.lower_ty_param_bound(bound, itctx)).collect()
     }
 
     fn lower_block(&mut self, b: &Block, targeted_by_break: bool) -> P<hir::Block> {
@@ -1534,7 +1542,7 @@ impl<'a> LoweringContext<'a> {
                 hir::ItemUnion(vdata, self.lower_generics(generics))
             }
             ItemKind::AutoImpl(unsafety, ref trait_ref) => {
-                let trait_ref = self.lower_trait_ref(trait_ref);
+                let trait_ref = self.lower_trait_ref(trait_ref, ImplTraitContext::Disallowed);
 
                 if let Def::Trait(def_id) = trait_ref.path.def {
                     self.trait_auto_impl.insert(def_id, id);
@@ -1553,7 +1561,9 @@ impl<'a> LoweringContext<'a> {
                 let new_impl_items = impl_items.iter()
                                                .map(|item| self.lower_impl_item_ref(item, ifce))
                                                .collect();
-                let ifce = ifce.as_ref().map(|trait_ref| self.lower_trait_ref(trait_ref));
+                let ifce = ifce.as_ref().map(|trait_ref| {
+                    self.lower_trait_ref(trait_ref, ImplTraitContext::Disallowed)
+                });
 
                 if let Some(ref trait_ref) = ifce {
                     if let Def::Trait(def_id) = trait_ref.path.def {
@@ -1570,7 +1580,7 @@ impl<'a> LoweringContext<'a> {
                               new_impl_items)
             }
             ItemKind::Trait(is_auto, unsafety, ref generics, ref bounds, ref items) => {
-                let bounds = self.lower_bounds(bounds);
+                let bounds = self.lower_bounds(bounds, ImplTraitContext::Disallowed);
                 let items = items.iter().map(|item| self.lower_trait_item_ref(item)).collect();
                 hir::ItemTrait(self.lower_is_auto(is_auto),
                                self.lower_unsafety(unsafety),
@@ -1617,7 +1627,8 @@ impl<'a> LoweringContext<'a> {
                                                    hir::TraitMethod::Provided(body_id))
                     }
                     TraitItemKind::Type(ref bounds, ref default) => {
-                        hir::TraitItemKind::Type(this.lower_bounds(bounds),
+                        hir::TraitItemKind::Type(this.lower_bounds(bounds,
+                                                                   ImplTraitContext::Disallowed),
                                                  default.as_ref().map(|x| {
                                                      this.lower_ty(x, ImplTraitContext::Disallowed)
                                                  }))
@@ -1908,16 +1919,19 @@ impl<'a> LoweringContext<'a> {
                 }
                 PatKind::Lit(ref e) => hir::PatKind::Lit(P(self.lower_expr(e))),
                 PatKind::TupleStruct(ref path, ref pats, ddpos) => {
-                    let qpath = self.lower_qpath(p.id, &None, path, ParamMode::Optional);
+                    let qpath = self.lower_qpath(p.id, &None, path, ParamMode::Optional,
+                                                 ImplTraitContext::Disallowed);
                     hir::PatKind::TupleStruct(qpath,
                                               pats.iter().map(|x| self.lower_pat(x)).collect(),
                                               ddpos)
                 }
                 PatKind::Path(ref qself, ref path) => {
-                    hir::PatKind::Path(self.lower_qpath(p.id, qself, path, ParamMode::Optional))
+                    hir::PatKind::Path(self.lower_qpath(p.id, qself, path, ParamMode::Optional,
+                                                        ImplTraitContext::Disallowed))
                 }
                 PatKind::Struct(ref path, ref fields, etc) => {
-                    let qpath = self.lower_qpath(p.id, &None, path, ParamMode::Optional);
+                    let qpath = self.lower_qpath(p.id, &None, path, ParamMode::Optional,
+                                                 ImplTraitContext::Disallowed);
 
                     let fs = fields.iter()
                                    .map(|f| {
@@ -2268,7 +2282,8 @@ impl<'a> LoweringContext<'a> {
                 };
             }
             ExprKind::Path(ref qself, ref path) => {
-                hir::ExprPath(self.lower_qpath(e.id, qself, path, ParamMode::Optional))
+                hir::ExprPath(self.lower_qpath(e.id, qself, path, ParamMode::Optional,
+                                               ImplTraitContext::Disallowed))
             }
             ExprKind::Break(opt_ident, ref opt_expr) => {
                 let label_result = if self.is_in_loop_condition && opt_ident.is_none() {
@@ -2321,7 +2336,8 @@ impl<'a> LoweringContext<'a> {
                 hir::ExprInlineAsm(P(hir_asm), outputs, inputs)
             }
             ExprKind::Struct(ref path, ref fields, ref maybe_expr) => {
-                hir::ExprStruct(self.lower_qpath(e.id, &None, path, ParamMode::Optional),
+                hir::ExprStruct(self.lower_qpath(e.id, &None, path, ParamMode::Optional,
+                                                 ImplTraitContext::Disallowed),
                                 fields.iter().map(|x| self.lower_field(x)).collect(),
                                 maybe_expr.as_ref().map(|x| P(self.lower_expr(x))))
             }
