@@ -676,14 +676,14 @@ impl<'a> LoweringContext<'a> {
             TyKind::Infer => hir::TyInfer,
             TyKind::Err => hir::TyErr,
             TyKind::Slice(ref ty) => hir::TySlice(self.lower_ty(ty, itctx)),
-            TyKind::Ptr(ref mt) => hir::TyPtr(self.lower_mt(mt)),
+            TyKind::Ptr(ref mt) => hir::TyPtr(self.lower_mt(mt, itctx)),
             TyKind::Rptr(ref region, ref mt) => {
                 let span = t.span.with_hi(t.span.lo());
                 let lifetime = match *region {
                     Some(ref lt) => self.lower_lifetime(lt),
                     None => self.elided_lifetime(span)
                 };
-                hir::TyRptr(lifetime, self.lower_mt(mt))
+                hir::TyRptr(lifetime, self.lower_mt(mt, itctx))
             }
             TyKind::BareFn(ref f) => {
                 hir::TyBareFn(P(hir::BareFnTy {
@@ -1031,8 +1031,9 @@ impl<'a> LoweringContext<'a> {
                                           data: &ParenthesizedParameterData,
                                           itctx: ImplTraitContext)
                                           -> (hir::PathParameters, bool) {
+        const DISALLOWED: ImplTraitContext = ImplTraitContext::Disallowed;
         let &ParenthesizedParameterData { ref inputs, ref output, span } = data;
-        let inputs = inputs.iter().map(|ty| self.lower_ty(ty, itctx)).collect();
+        let inputs = inputs.iter().map(|ty| self.lower_ty(ty, DISALLOWED)).collect();
         let mk_tup = |this: &mut Self, tys, span| {
             let LoweredNodeId { node_id, hir_id } = this.next_id();
             P(hir::Ty { node: hir::TyTup(tys), id: node_id, hir_id, span })
@@ -1366,9 +1367,9 @@ impl<'a> LoweringContext<'a> {
         }
     }
 
-    fn lower_mt(&mut self, mt: &MutTy) -> hir::MutTy {
+    fn lower_mt(&mut self, mt: &MutTy, itctx: ImplTraitContext) -> hir::MutTy {
         hir::MutTy {
-            ty: self.lower_ty(&mt.ty, ImplTraitContext::Disallowed),
+            ty: self.lower_ty(&mt.ty, itctx),
             mutbl: self.lower_mutability(mt.mutbl),
         }
     }
