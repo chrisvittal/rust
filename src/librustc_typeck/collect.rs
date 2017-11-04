@@ -891,8 +891,7 @@ fn generics_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
     let mut allow_defaults = false;
 
     let no_generics = hir::Generics::empty();
-    // FIXME Rename this
-    let (ast_generics, fake_defs) = match node {
+    let (ast_generics, opt_inputs) = match node {
         NodeTraitItem(item) => {
             match item.node {
                 TraitItemKind::Method(ref sig, _) => (&sig.generics, Some(&sig.decl.inputs)),
@@ -1013,7 +1012,7 @@ fn generics_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
 
     let mut it_tys = ImplTraitUniversalVisitor { items: Vec::new() };
 
-    fake_defs.map(|it| {
+    opt_inputs.map(|it| {
         for t in it.iter() {
             it_tys.visit_ty(t);
         }
@@ -1394,8 +1393,7 @@ fn explicit_predicates_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
 
     let icx = ItemCtxt::new(tcx, def_id);
     let no_generics = hir::Generics::empty();
-    // FIXME Better name
-    let (ast_generics, fake_defs) = match node {
+    let (ast_generics, opt_inputs) = match node {
         NodeTraitItem(item) => {
             match item.node {
                 TraitItemKind::Method(ref sig, _) => (&sig.generics, Some(&sig.decl.inputs)),
@@ -1587,10 +1585,8 @@ fn explicit_predicates_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
         }))
     }
 
-    // Add predicates from argument position impl trait
-    // FIXME: Is this correct?
     let mut it_tys = ImplTraitUniversalVisitor { items: Vec::new() };
-    fake_defs.map(|it| {
+    opt_inputs.map(|it| {
         for t in it.iter() {
             it_tys.visit_ty(t);
         }

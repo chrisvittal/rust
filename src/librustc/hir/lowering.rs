@@ -871,15 +871,7 @@ impl<'a> LoweringContext<'a> {
                     n
                 });
                 self.lower_path_segment(p.span, segment, param_mode, num_lifetimes,
-                                        parenthesized_generic_args,
-                                        // FIXME(cvittal): changing this currently causes tests
-                                        // run-pass/impl-trait/xcrate.rs and
-                                        // run-pass/impl-trait/example-calendar.rs to fail.
-                                        // Probably need to tighten this up.
-                                        // NOTE 2017-10-29, this also causes the test
-                                        // compile-fail/impl-trait/disallowed.rs to not emit a
-                                        // required error
-                                        itctx)
+                                        parenthesized_generic_args, itctx)
             }).collect(),
             span: p.span,
         });
@@ -1146,7 +1138,6 @@ impl<'a> LoweringContext<'a> {
         }
 
         let itctx = ImplTraitContext::Universal(self.resolver.definitions().local_def_id(tp.id));
-        // FIXME(cdv) UNIVERSAL
         let mut bounds = self.lower_bounds(&tp.bounds, itctx);
         if !add_bounds.is_empty() {
             bounds = bounds.into_iter().chain(
