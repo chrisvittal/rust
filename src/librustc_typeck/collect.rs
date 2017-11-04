@@ -227,6 +227,24 @@ impl<'a, 'tcx> AstConv<'tcx, 'tcx> for ItemCtxt<'a, 'tcx> {
     }
 }
 
+// A visitor for simply collecting Universally quantified impl Trait arguments
+struct ImplTraitUniversalVisitor<'tcx> {
+    items: Vec<&'tcx hir::Ty>
+}
+
+impl<'tcx> Visitor<'tcx> for ImplTraitUniversalVisitor<'tcx> {
+    fn nested_visit_map<'this>(&'this mut self) -> NestedVisitorMap<'this, 'tcx> {
+        NestedVisitorMap::None
+    }
+
+    fn visit_ty(&mut self, ty: &'tcx hir::Ty) {
+        if let hir::TyImplTraitUniversal(..) = ty.node {
+            self.items.push(ty);
+        }
+        intravisit::walk_ty(self, ty);
+    }
+}
+
 fn type_param_predicates<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                                    (item_def_id, def_id): (DefId, DefId))
                                    -> ty::GenericPredicates<'tcx> {
@@ -998,15 +1016,24 @@ fn generics_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
             synthetic: p.synthetic,
         }
     });
-    // NB: ast_generics.ty_params.len() should be the same size as types
+
+    let mut it_tys = ImplTraitUniversalVisitor { items: Vec::new() };
+
+    fake_defs.map(|it| {
+        for t in it.iter() {
+            it_tys.visit_ty(t);
+        }
+    });
+    // FIXME(chrisvittal) only for testing
+    assert!(it_tys.items.iter().all(|ty| if let hir::TyImplTraitUniversal(..) = ty.node {
+        true
+    } else {
+        false
+    }));
     let other_type_start = type_start + ast_generics.ty_params.len() as u32;
-    let other_types = fake_defs.iter().map(|it| it.iter().filter(|ty| {
-            if let hir::TyImplTraitUniversal(..) = ty.node {
-                true
-            } else {
-                false
-            }
-        }).enumerate().map(|(i, ty)| {
+    let mut types: Vec<_> = opt_self.into_iter()
+        .chain(types)
+        .chain(it_tys.items.iter().enumerate().map(|(i, ty)| {
             ty::TypeParameterDef {
                 index: other_type_start + i as u32,
                 name: keywords::Invalid.name() /* FIXME(chrisvittal) maybe make not Invalid */,
@@ -1016,9 +1043,8 @@ fn generics_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                 pure_wrt_drop: false,
                 synthetic: Some(SyntheticTyParamKind::ImplTrait),
             }
-        })
-    ).flat_map(|a| a);
-    let mut types: Vec<_> = opt_self.into_iter().chain(types).chain(other_types).collect();
+        }))
+        .collect();
 
     // provide junk type parameter defs - the only place that
     // cares about anything but the length is instantiation,
@@ -1567,18 +1593,27 @@ fn explicit_predicates_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
 
     // Add predicates from argument position impl trait
     // FIXME: Is this correct?
-    if let Some(inputs) = fake_defs {
-        for ty in inputs {
-            if let hir::TyImplTraitUniversal(_, ref bounds) = ty.node {
-                // FIXME(chrisvittal) maybe make not Invalid in the future
-                let name = keywords::Invalid.name();
-                let param_ty = ty::ParamTy::new(index, name).to_ty(tcx);
-                index += 1;
-                let bounds = compute_bounds(&icx, param_ty, bounds,
-                                            SizedByDefault::Yes,
-                                            ty.span);
-                predicates.extend(bounds.predicates(tcx, param_ty));
-            }
+    let mut it_tys = ImplTraitUniversalVisitor { items: Vec::new() };
+    fake_defs.map(|it| {
+        for t in it.iter() {
+            it_tys.visit_ty(t);
+        }
+    });
+    // FIXME(chrisvittal) only for testing
+    assert!(it_tys.items.iter().all(|ty| if let hir::TyImplTraitUniversal(..) = ty.node {
+        true
+    } else {
+        false
+    }));
+    for ty in it_tys.items.iter() {
+        if let hir::TyImplTraitUniversal(_, ref bounds) = ty.node {
+            let name = keywords::Invalid.name();
+            let param_ty = ty::ParamTy::new(index, name).to_ty(tcx);
+            index += 1;
+            let bounds = compute_bounds(&icx, param_ty, bounds,
+                                        SizedByDefault::Yes,
+                                        ty.span);
+            predicates.extend(bounds.predicates(tcx, param_ty));
         }
     }
 
