@@ -894,15 +894,15 @@ fn generics_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
     let (ast_generics, opt_inputs) = match node {
         NodeTraitItem(item) => {
             match item.node {
-                TraitItemKind::Method(ref sig, _) => (&sig.generics, Some(&sig.decl.inputs)),
-                _ => (&no_generics, None)
+                TraitItemKind::Method(ref sig, _) => (&item.generics, Some(&sig.decl.inputs)),
+                _ => (&item.generics, None)
             }
         }
 
         NodeImplItem(item) => {
             match item.node {
-                ImplItemKind::Method(ref sig, _) => (&sig.generics, Some(&sig.decl.inputs)),
-                _ => (&no_generics, None)
+                ImplItemKind::Method(ref sig, _) => (&item.generics, Some(&sig.decl.inputs)),
+                _ => (&item.generics, None)
             }
         }
 
@@ -1396,15 +1396,15 @@ fn explicit_predicates_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
     let (ast_generics, opt_inputs) = match node {
         NodeTraitItem(item) => {
             match item.node {
-                TraitItemKind::Method(ref sig, _) => (&sig.generics, Some(&sig.decl.inputs)),
-                _ => (&no_generics, None)
+                TraitItemKind::Method(ref sig, _) => (&item.generics, Some(&sig.decl.inputs)),
+                _ => (&item.generics, None)
             }
         }
 
         NodeImplItem(item) => {
             match item.node {
-                ImplItemKind::Method(ref sig, _) => (&sig.generics, Some(&sig.decl.inputs)),
-                _ => (&no_generics, None)
+                ImplItemKind::Method(ref sig, _) => (&item.generics, Some(&sig.decl.inputs)),
+                _ => (&item.generics, None)
             }
         }
 
@@ -1435,7 +1435,7 @@ fn explicit_predicates_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
         NodeForeignItem(item) => {
             match item.node {
                 ForeignItemStatic(..) => (&no_generics, None),
-                ForeignItemFn(ref decl, _, ref generics) => (generics, Some(&decl.inputs))
+                ForeignItemFn(ref decl, _, ref generics) => (generics, Some(&decl.inputs)),
                 ForeignItemType => (&no_generics, None),
             }
         }
