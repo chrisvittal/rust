@@ -720,10 +720,9 @@ fn compare_synthetic_generics<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                                         _trait_item_span: Option<Span>) // FIXME necessary?
                                         -> Result<(), ErrorReported> {
     // FIXME(chrisvittal) Clean up this function, list of FIXME items:
-    //     1. New error code
-    //     2. Better messages for the span lables
-    //     3. Explination as to what is going on
-    //     4. Correct the function signature for what we actually use
+    //     1. Better messages for the span lables
+    //     2. Explanation as to what is going on
+    //     3. Correct the function signature for what we actually use
     // If we get here, we already have the same number of generics, so the zip will
     // be okay.
     let mut error_found = false;
@@ -737,7 +736,7 @@ fn compare_synthetic_generics<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
             let trait_span = tcx.hir.span(trait_node_id);
             let mut err = struct_span_err!(tcx.sess,
                                            impl_span,
-                                           E0053,
+                                           E0641,
                                            "method `{}` has incompatible signature for trait",
                                            trait_m.name);
             err.span_label(trait_span, "Annotation in trait");
