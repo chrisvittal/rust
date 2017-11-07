@@ -739,8 +739,8 @@ fn compare_synthetic_generics<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                                            E0641,
                                            "method `{}` has incompatible signature for trait",
                                            trait_m.name);
-            err.span_label(trait_span, "Annotation in trait");
-            err.span_label(impl_span, "Annotation in impl");
+            err.span_label(trait_span, "annotation in trait");
+            err.span_label(impl_span, "annotation in impl");
             err.emit();
             error_found = true;
         }
