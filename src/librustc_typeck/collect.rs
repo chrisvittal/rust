@@ -43,6 +43,7 @@ use rustc_const_math::ConstInt;
 use std::collections::BTreeMap;
 
 use syntax::{abi, ast};
+use syntax::ptr::P;
 use syntax::codemap::Spanned;
 use syntax::symbol::{Symbol, keywords};
 use syntax_pos::{Span, DUMMY_SP};
@@ -227,23 +228,6 @@ impl<'a, 'tcx> AstConv<'tcx, 'tcx> for ItemCtxt<'a, 'tcx> {
     }
 }
 
-// A visitor for simply collecting Universally quantified impl Trait arguments
-struct ImplTraitUniversalVisitor<'tcx> {
-    items: Vec<&'tcx hir::Ty>
-}
-
-impl<'tcx> Visitor<'tcx> for ImplTraitUniversalVisitor<'tcx> {
-    fn nested_visit_map<'this>(&'this mut self) -> NestedVisitorMap<'this, 'tcx> {
-        NestedVisitorMap::None
-    }
-
-    fn visit_ty(&mut self, ty: &'tcx hir::Ty) {
-        if let hir::TyImplTraitUniversal(..) = ty.node {
-            self.items.push(ty);
-        }
-        intravisit::walk_ty(self, ty);
-    }
-}
 
 fn type_param_predicates<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                                    (item_def_id, def_id): (DefId, DefId))
@@ -1010,27 +994,16 @@ fn generics_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
         }
     });
 
-    let mut it_tys = ImplTraitUniversalVisitor { items: Vec::new() };
-
-    opt_inputs.map(|it| {
-        for t in it.iter() {
-            it_tys.visit_ty(t);
-        }
-    });
-    // FIXME(chrisvittal) only for testing
-    assert!(it_tys.items.iter().all(|ty| if let hir::TyImplTraitUniversal(..) = ty.node {
-        true
-    } else {
-        false
-    }));
+    let fn_ins = opt_inputs.map(|tys| &tys[..]);
+    let univ_impl_trait_info = extract_universal_impl_trait_info(tcx, fn_ins);
     let other_type_start = type_start + ast_generics.ty_params.len() as u32;
     let mut types: Vec<_> = opt_self.into_iter()
         .chain(types)
-        .chain(it_tys.items.iter().enumerate().map(|(i, ty)| {
+        .chain(univ_impl_trait_info.iter().enumerate().map(|(i, info)| {
             ty::TypeParameterDef {
                 index: other_type_start + i as u32,
                 name: keywords::Invalid.name() /* FIXME(chrisvittal) maybe make not Invalid */,
-                def_id: tcx.hir.local_def_id(ty.id),
+                def_id: info.def_id,
                 has_default: false,
                 object_lifetime_default: rl::Set1::Empty,
                 pure_wrt_drop: false,
@@ -1585,28 +1558,17 @@ fn explicit_predicates_of<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
         }))
     }
 
-    let mut it_tys = ImplTraitUniversalVisitor { items: Vec::new() };
-    opt_inputs.map(|it| {
-        for t in it.iter() {
-            it_tys.visit_ty(t);
-        }
-    });
-    // FIXME(chrisvittal) only for testing
-    assert!(it_tys.items.iter().all(|ty| if let hir::TyImplTraitUniversal(..) = ty.node {
-        true
-    } else {
-        false
-    }));
-    for ty in it_tys.items.iter() {
-        if let hir::TyImplTraitUniversal(_, ref bounds) = ty.node {
-            let name = keywords::Invalid.name();
-            let param_ty = ty::ParamTy::new(index, name).to_ty(tcx);
-            index += 1;
-            let bounds = compute_bounds(&icx, param_ty, bounds,
-                                        SizedByDefault::Yes,
-                                        ty.span);
-            predicates.extend(bounds.predicates(tcx, param_ty));
-        }
+    // Add predicates from impl Trait arguments
+    let fn_ins = opt_inputs.map(|tys| &tys[..]);
+    let univ_impl_trait_info = extract_universal_impl_trait_info(tcx, fn_ins);
+    for info in univ_impl_trait_info.iter() {
+        let name = keywords::Invalid.name();
+        let param_ty = ty::ParamTy::new(index, name).to_ty(tcx);
+        index += 1;
+        let bounds = compute_bounds(&icx, param_ty, info.bounds,
+                                    SizedByDefault::Yes,
+                                    info.span);
+        predicates.extend(bounds.predicates(tcx, param_ty));
     }
 
     // Subtle: before we store the predicates into the tcx, we
@@ -1768,4 +1730,49 @@ fn is_auto_impl<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
         Some(_) => false,
         _ => bug!("is_auto_impl applied to non-local def-id {:?}", def_id)
     }
+}
+
+struct ImplTraitUniversalInfo<'hir> {
+    def_id: DefId,
+    span: Span,
+    bounds: &'hir [hir::TyParamBound],
+}
+
+/// Take some possible list of arguments and return the DefIds of the ImplTraitUniversal
+/// arguments
+fn extract_universal_impl_trait_info<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
+                                               opt_inputs: Option<&'tcx [P<hir::Ty>]>)
+                                               -> Vec<ImplTraitUniversalInfo<'tcx>>
+{
+    // A visitor for simply collecting Universally quantified impl Trait arguments
+    struct ImplTraitUniversalVisitor<'tcx> {
+        items: Vec<&'tcx hir::Ty>
+    }
+
+    impl<'tcx> Visitor<'tcx> for ImplTraitUniversalVisitor<'tcx> {
+        fn nested_visit_map<'this>(&'this mut self) -> NestedVisitorMap<'this, 'tcx> {
+            NestedVisitorMap::None
+        }
+
+        fn visit_ty(&mut self, ty: &'tcx hir::Ty) {
+            if let hir::TyImplTraitUniversal(..) = ty.node {
+                self.items.push(ty);
+            }
+            intravisit::walk_ty(self, ty);
+        }
+    }
+
+    let mut visitor = ImplTraitUniversalVisitor { items: Vec::new() };
+    opt_inputs.map(|inputs| for t in inputs.iter() {
+        visitor.visit_ty(t);
+    });
+    visitor.items.into_iter().map(|ty| if let hir::TyImplTraitUniversal(_, ref bounds) = ty.node {
+        ImplTraitUniversalInfo {
+            def_id: tcx.hir.local_def_id(ty.id),
+            span: ty.span,
+            bounds: bounds
+        }
+    } else {
+        span_bug!(ty.span, "this type should be a universally quantified impl trait. this is a bug")
+    }).collect()
 }
