@@ -329,8 +329,6 @@ fn compare_predicate_entailment<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                                     found: impl_fty,
                                 })),
                                 &terr);
-            // FIXME(chrisvittal) do not emit this error if we already have an error on the
-            // return value of the trait
             diag.emit();
             return Err(ErrorReported);
         }

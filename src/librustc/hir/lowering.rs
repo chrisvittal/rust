@@ -690,7 +690,7 @@ impl<'a> LoweringContext<'a> {
                     lifetimes: self.lower_lifetime_defs(&f.lifetimes),
                     unsafety: self.lower_unsafety(f.unsafety),
                     abi: f.abi,
-                    decl: self.lower_fn_decl(&f.decl, None),
+                    decl: self.lower_fn_decl(&f.decl, None, false),
                     arg_names: self.lower_fn_args_to_names(&f.decl),
                 }))
             }
@@ -1087,7 +1087,11 @@ impl<'a> LoweringContext<'a> {
         }).collect()
     }
 
-    fn lower_fn_decl(&mut self, decl: &FnDecl, fn_def_id: Option<DefId>) -> P<hir::FnDecl> {
+    fn lower_fn_decl(&mut self,
+                     decl: &FnDecl,
+                     fn_def_id: Option<DefId>,
+                     impl_trait_return_allow: bool)
+                     -> P<hir::FnDecl> {
         P(hir::FnDecl {
             inputs: decl.inputs.iter()
                 .map(|arg| if let Some(def_id) = fn_def_id {
@@ -1096,10 +1100,10 @@ impl<'a> LoweringContext<'a> {
                     self.lower_ty(&arg.ty, ImplTraitContext::Disallowed)
                 }).collect(),
             output: match decl.output {
-                FunctionRetTy::Ty(ref ty) => if let Some(_) = fn_def_id {
-                    hir::Return(self.lower_ty(ty, ImplTraitContext::Existential))
-                } else {
-                    hir::Return(self.lower_ty(ty, ImplTraitContext::Disallowed))
+                FunctionRetTy::Ty(ref ty) => match (impl_trait_return_allow, fn_def_id) {
+                    (false, _) => hir::Return(self.lower_ty(ty, ImplTraitContext::Disallowed)),
+                    (_, Some(_)) => hir::Return(self.lower_ty(ty, ImplTraitContext::Existential)),
+                    _ => hir::Return(self.lower_ty(ty, ImplTraitContext::Disallowed)),
                 },
                 FunctionRetTy::Default(span) => hir::DefaultReturn(span),
             },
@@ -1501,7 +1505,7 @@ impl<'a> LoweringContext<'a> {
                         let body = this.lower_block(body, false);
                         this.expr_block(body, ThinVec::new())
                     });
-                    hir::ItemFn(this.lower_fn_decl(decl, fn_def_id),
+                    hir::ItemFn(this.lower_fn_decl(decl, fn_def_id, true),
                                 this.lower_unsafety(unsafety),
                                 this.lower_constness(constness),
                                 abi,
@@ -1607,7 +1611,7 @@ impl<'a> LoweringContext<'a> {
                     }
                     TraitItemKind::Method(ref sig, None) => {
                         let names = this.lower_fn_args_to_names(&sig.decl);
-                        hir::TraitItemKind::Method(this.lower_method_sig(sig, fn_def_id),
+                        hir::TraitItemKind::Method(this.lower_method_sig(sig, fn_def_id, false),
                                                    hir::TraitMethod::Required(names))
                     }
                     TraitItemKind::Method(ref sig, Some(ref body)) => {
@@ -1615,7 +1619,7 @@ impl<'a> LoweringContext<'a> {
                             let body = this.lower_block(body, false);
                             this.expr_block(body, ThinVec::new())
                         });
-                        hir::TraitItemKind::Method(this.lower_method_sig(sig, fn_def_id),
+                        hir::TraitItemKind::Method(this.lower_method_sig(sig, fn_def_id, false),
                                                    hir::TraitMethod::Provided(body_id))
                     }
                     TraitItemKind::Type(ref bounds, ref default) => {
@@ -1641,11 +1645,6 @@ impl<'a> LoweringContext<'a> {
                 (hir::AssociatedItemKind::Type, default.is_some())
             }
             TraitItemKind::Method(ref sig, ref default) => {
-                if let FunctionRetTy::Ty(ref ty) = sig.decl.output {
-                    if ty.node.is_impl_trait() {
-                        self.impl_trait_err(ty.span);
-                    }
-                }
                 (hir::AssociatedItemKind::Method {
                     has_self: sig.decl.has_self(),
                  }, default.is_some())
@@ -1687,7 +1686,10 @@ impl<'a> LoweringContext<'a> {
                             let body = this.lower_block(body, false);
                             this.expr_block(body, ThinVec::new())
                         });
-                        hir::ImplItemKind::Method(this.lower_method_sig(sig, fn_def_id), body_id)
+                        let impl_trait_return_allow = true;
+                        hir::ImplItemKind::Method(this.lower_method_sig(sig, fn_def_id,
+                                                                        impl_trait_return_allow),
+                                                  body_id)
                     }
                     ImplItemKind::Type(ref ty) =>
                         hir::ImplItemKind::Type(this.lower_ty(ty, ImplTraitContext::Disallowed)),
@@ -1796,7 +1798,7 @@ impl<'a> LoweringContext<'a> {
                 node: match i.node {
                     ForeignItemKind::Fn(ref fdec, ref generics) => {
                         let fn_def_id = this.resolver.definitions().opt_local_def_id(i.id);
-                        hir::ForeignItemFn(this.lower_fn_decl(fdec, fn_def_id),
+                        hir::ForeignItemFn(this.lower_fn_decl(fdec, fn_def_id, true),
                                            this.lower_fn_args_to_names(fdec),
                                            this.lower_generics(generics))
                     }
@@ -1813,12 +1815,16 @@ impl<'a> LoweringContext<'a> {
         })
     }
 
-    fn lower_method_sig(&mut self, sig: &MethodSig, fn_def_id: Option<DefId>) -> hir::MethodSig {
+    fn lower_method_sig(&mut self,
+                        sig: &MethodSig,
+                        fn_def_id: Option<DefId>,
+                        impl_trait_return_allow: bool)
+                        -> hir::MethodSig {
         hir::MethodSig {
             abi: sig.abi,
             unsafety: self.lower_unsafety(sig.unsafety),
             constness: self.lower_constness(sig.constness),
-            decl: self.lower_fn_decl(&sig.decl, fn_def_id),
+            decl: self.lower_fn_decl(&sig.decl, fn_def_id, impl_trait_return_allow),
         }
     }
 
@@ -2200,7 +2206,7 @@ impl<'a> LoweringContext<'a> {
                             this.sess.abort_if_errors();
                         }
                         hir::ExprClosure(this.lower_capture_clause(capture_clause),
-                                         this.lower_fn_decl(decl, None),
+                                         this.lower_fn_decl(decl, None, false),
                                          body_id,
                                          fn_decl_span,
                                          is_generator)
