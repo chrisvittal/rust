@@ -103,6 +103,7 @@ pub struct LoweringContext<'a> {
     catch_scopes: Vec<NodeId>,
     loop_scopes: Vec<NodeId>,
     is_in_loop_condition: bool,
+    is_in_trait_impl: bool,
 
     type_def_lifetime_params: DefIdMap<usize>,
 
@@ -174,6 +175,7 @@ pub fn lower_crate(sess: &Session,
         item_local_id_counters: NodeMap(),
         node_id_to_hir_id: IndexVec::new(),
         is_generator: false,
+        is_in_trait_impl: false,
     }.lower_crate(krate)
 }
 
@@ -241,6 +243,21 @@ impl<'a> LoweringContext<'a> {
             lctx: &'lcx mut LoweringContext<'interner>,
         }
 
+        impl<'lcx, 'interner> ItemLowerer<'lcx, 'interner> {
+            fn with_trait_impl_ref<F>(&mut self, trait_impl_ref: &Option<TraitRef>, f: F)
+                where F: FnOnce(&mut Self)
+            {
+                let old = self.lctx.is_in_trait_impl;
+                self.lctx.is_in_trait_impl = if let &None = trait_impl_ref {
+                    false
+                } else {
+                    true
+                };
+                f(self);
+                self.lctx.is_in_trait_impl = old;
+            }
+        }
+
         impl<'lcx, 'interner> Visitor<'lcx> for ItemLowerer<'lcx, 'interner> {
             fn visit_item(&mut self, item: &'lcx Item) {
                 let mut item_lowered = true;
@@ -253,7 +270,13 @@ impl<'a> LoweringContext<'a> {
                 });
 
                 if item_lowered {
-                    visit::walk_item(self, item);
+                    if let ItemKind::Impl(_,_,_,_,ref opt_trait_ref,_,_) = item.node {
+                        self.with_trait_impl_ref(opt_trait_ref, |this| {
+                            visit::walk_item(this, item)
+                        });
+                    } else {
+                        visit::walk_item(self, item);
+                    }
                 }
             }
 
@@ -1555,7 +1578,7 @@ impl<'a> LoweringContext<'a> {
                            ref ty,
                            ref impl_items) => {
                 let new_impl_items = impl_items.iter()
-                                               .map(|item| self.lower_impl_item_ref(item, ifce))
+                                               .map(|item| self.lower_impl_item_ref(item))
                                                .collect();
                 let ifce = ifce.as_ref().map(|trait_ref| {
                     self.lower_trait_ref(trait_ref, ImplTraitContext::Disallowed)
@@ -1686,7 +1709,7 @@ impl<'a> LoweringContext<'a> {
                             let body = this.lower_block(body, false);
                             this.expr_block(body, ThinVec::new())
                         });
-                        let impl_trait_return_allow = true;
+                        let impl_trait_return_allow = !this.is_in_trait_impl;
                         hir::ImplItemKind::Method(this.lower_method_sig(sig, fn_def_id,
                                                                         impl_trait_return_allow),
                                                   body_id)
@@ -1702,7 +1725,7 @@ impl<'a> LoweringContext<'a> {
         // [1] since `default impl` is not yet implemented, this is always true in impls
     }
 
-    fn lower_impl_item_ref(&mut self, i: &ImplItem, ifce: &Option<TraitRef>) -> hir::ImplItemRef {
+    fn lower_impl_item_ref(&mut self, i: &ImplItem) -> hir::ImplItemRef {
         hir::ImplItemRef {
             id: hir::ImplItemId { node_id: i.id },
             name: self.lower_ident(i.ident),
@@ -1713,13 +1736,6 @@ impl<'a> LoweringContext<'a> {
                 ImplItemKind::Const(..) => hir::AssociatedItemKind::Const,
                 ImplItemKind::Type(..) => hir::AssociatedItemKind::Type,
                 ImplItemKind::Method(ref sig, _) => {
-                    // If this is an implemetation of a trait, then return position impl
-                    // Trait is not allowed.
-                    if let (&Some(_), &FunctionRetTy::Ty(ref ty)) = (ifce, &sig.decl.output) {
-                        if ty.node.is_impl_trait() {
-                            self.impl_trait_err(ty.span);
-                        }
-                    }
                     hir::AssociatedItemKind::Method {
                         has_self: sig.decl.has_self(),
                     }
