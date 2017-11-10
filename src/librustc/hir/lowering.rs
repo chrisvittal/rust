@@ -774,7 +774,9 @@ impl<'a> LoweringContext<'a> {
                     ImplTraitContext::Universal(def_id) =>
                         hir::TyImplTraitUniversal(def_id, self.lower_bounds(bounds, itctx)),
                     ImplTraitContext::Disallowed => {
-                        self.impl_trait_err(t.span);
+                        span_err!(self.sess, t.span, E0562,
+                                  "`impl Trait` not allowed outside of function \
+                                  and inherent method return types");
                         hir::TyErr
                     }
                 }
@@ -3131,13 +3133,6 @@ impl<'a> LoweringContext<'a> {
             span,
             name: hir::LifetimeName::Implicit,
         }
-    }
-
-    /// Emits an E0562, `impl Trait` disallowed error
-    fn impl_trait_err(&self, span: Span) {
-        span_err!(self.sess, span, E0562,
-                  "`impl Trait` not allowed outside of function \
-                  and inherent method return types");
     }
 }
 
