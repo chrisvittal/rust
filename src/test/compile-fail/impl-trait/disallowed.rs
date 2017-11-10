@@ -12,9 +12,11 @@
 
 type Factory<R> = impl Fn() -> R;
 //~^ ERROR `impl Trait` not allowed outside of function and inherent method return types
+//~^^ ERROR type parameter `R` is unused
 
 type GlobalFactory<R> = fn() -> impl FnOnce() -> R;
 //~^ ERROR `impl Trait` not allowed outside of function and inherent method return types
+//~^^ ERROR type parameter `R` is unused
 
 trait LazyToString {
     fn lazy_to_string<'a>(&'a self) -> impl Fn() -> String;
