@@ -4625,11 +4625,11 @@ It is recommended that you look for a `new` function or equivalent in the
 crate's documentation.
 "##,
 
-E0641: r##"
+E0642: r##"
 This error indicates that there is a mismatch between generic parameters and
 impl Trait parameters in a trait Declaration versus it's impl.
 
-```compile_fail,E0641
+```compile_fail,E0642
 #![feature(conservative_impl_trait)]
 trait Foo
     fn foo(&self, &impl Iterator)

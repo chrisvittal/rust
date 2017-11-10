@@ -734,7 +734,7 @@ fn compare_synthetic_generics<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
             let trait_span = tcx.hir.span(trait_node_id);
             let mut err = struct_span_err!(tcx.sess,
                                            impl_span,
-                                           E0641,
+                                           E0642,
                                            "method `{}` has incompatible signature for trait",
                                            trait_m.name);
             err.span_label(trait_span, "annotation in trait");
