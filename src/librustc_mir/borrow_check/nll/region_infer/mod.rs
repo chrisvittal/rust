@@ -93,11 +93,30 @@ struct RegionDefinition<'tcx> {
     external_name: Option<ty::Region<'tcx>>,
 }
 
-/// NB: The variants in `Cause` are intentionally ordered. Lower
+/// FIXME(chrisvittal): Better docs of what a `Cause` is.
+///
+/// Field order is significant here as more directly related causes have more?(FIXME) `outlives`
+/// links.
+#[derive(Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
+pub(crate) struct Cause {
+    /// Length of an 'outlives' chain.
+    outlives: u32,
+
+    /// Represents what is live for this particular cause
+    pub root_cause: RootCause
+}
+
+impl Cause {
+    pub(crate) fn new(root_cause: RootCause) -> Self {
+        Self { outlives: 0, root_cause }
+    }
+}
+
+/// NB: The variants in `RootCause` are intentionally ordered. Lower
 /// values are preferred when it comes to error messages. Do not
 /// reorder willy nilly.
 #[derive(Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
-pub(crate) enum Cause {
+pub(crate) enum RootCause {
     /// point inserted because Local was live at the given Location
     LiveVar(Local, Location),
 
@@ -111,18 +130,18 @@ pub(crate) enum Cause {
     /// part of the initial set of values for a universally quantified region
     UniversalRegion(RegionVid),
 
-    /// Element E was added to R because there was some
-    /// outlives obligation `R: R1 @ P` and `R1` contained `E`.
-    Outlives {
-        /// the reason that R1 had E
-        original_cause: Rc<Cause>,
+    ///// Element E was added to R because there was some
+    ///// outlives obligation `R: R1 @ P` and `R1` contained `E`.
+    //Outlives {
+    //    /// the reason that R1 had E
+    //    original_cause: Rc<Cause>,
 
-        /// the point P from the relation
-        constraint_location: Location,
+    //    /// the point P from the relation
+    //    constraint_location: Location,
 
-        /// The span indicating why we added the outlives constraint.
-        constraint_span: Span,
-    },
+    //    /// The span indicating why we added the outlives constraint.
+    //    constraint_span: Span,
+    //},
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -313,13 +332,13 @@ impl<'tcx> RegionInferenceContext<'tcx> {
                 self.liveness_constraints.add(
                     variable,
                     point_index,
-                    &Cause::UniversalRegion(variable),
+                    &Cause::new(RootCause::UniversalRegion(variable)),
                 );
             }
 
             // Add `end(X)` into the set for X.
             self.liveness_constraints
-                .add(variable, variable, &Cause::UniversalRegion(variable));
+                .add(variable, variable, &Cause::new(RootCause::UniversalRegion(variable)));
         }
     }
 
@@ -1275,11 +1294,10 @@ trait CauseExt {
 
 impl CauseExt for Rc<Cause> {
     /// Creates a derived cause due to an outlives constraint.
-    fn outlives(&self, constraint_location: Location, constraint_span: Span) -> Cause {
-        Cause::Outlives {
-            original_cause: self.clone(),
-            constraint_location,
-            constraint_span,
+    fn outlives(&self, _constraint_location: Location, _constraint_span: Span) -> Cause {
+        Cause {
+            outlives: self.outlives + 1,
+            root_cause: self.root_cause.clone()
         }
     }
 }
@@ -1294,17 +1312,18 @@ impl Cause {
         }
 
         let mut string = String::new();
-        self.push_diagnostic_string(mir, &mut string);
+        self.root_cause.push_diagnostic_string(mir, &mut string);
         diag.note(&string);
     }
-
-    fn push_diagnostic_string(&self, mir: &Mir<'_>, string: &mut String) {
+}
+impl RootCause {
+    fn push_diagnostic_string(&self, _mir: &Mir<'_>, string: &mut String) {
         match self {
-            Cause::LiveVar(local, location) => {
+            RootCause::LiveVar(local, location) => {
                 string.push_str(&format!("because `{:?}` is live at {:?}", local, location));
             }
 
-            Cause::DropVar(local, location) => {
+            RootCause::DropVar(local, location) => {
                 string.push_str(&format!(
                     "because `{:?}` is dropped at {:?}",
                     local,
@@ -1312,50 +1331,50 @@ impl Cause {
                 ));
             }
 
-            Cause::LiveOther(location) => {
+            RootCause::LiveOther(location) => {
                 string.push_str(&format!(
                     "because of a general liveness constraint at {:?}",
                     location
                 ));
             }
 
-            Cause::UniversalRegion(region_vid) => {
+            RootCause::UniversalRegion(region_vid) => {
                 string.push_str(&format!(
                     "because `{:?}` is universally quantified",
                     region_vid
                 ));
             }
 
-            Cause::Outlives {
-                original_cause,
-                constraint_location,
-                constraint_span: _,
-            } => {
-                string.push_str(&format!(
-                    "because of an outlives relation created at `{:?}`\n",
-                    constraint_location
-                ));
+            //Cause::Outlives {
+            //    original_cause,
+            //    constraint_location,
+            //    constraint_span: _,
+            //} => {
+            //    string.push_str(&format!(
+            //        "because of an outlives relation created at `{:?}`\n",
+            //        constraint_location
+            //    ));
 
-                original_cause.push_diagnostic_string(mir, string);
-            }
+            //    original_cause.push_diagnostic_string(mir, string);
+            //}
         }
     }
 
-    pub(crate) fn root_cause(&self) -> &Cause {
-        match self {
-            Cause::LiveVar(..) |
-            Cause::DropVar(..) |
-            Cause::LiveOther(..) |
-            Cause::UniversalRegion(..) => {
-                self
-            }
+    //pub(crate) fn root_cause(&self) -> &Cause {
+    //    match self {
+    //        Cause::LiveVar(..) |
+    //        Cause::DropVar(..) |
+    //        Cause::LiveOther(..) |
+    //        Cause::UniversalRegion(..) => {
+    //            self
+    //        }
 
-            Cause::Outlives {
-                original_cause,
-                ..
-            } => {
-                original_cause.root_cause()
-            }
-        }
-    }
+    //        Cause::Outlives {
+    //            original_cause,
+    //            ..
+    //        } => {
+    //            original_cause.root_cause()
+    //        }
+    //    }
+    //}
 }

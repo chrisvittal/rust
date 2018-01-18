@@ -9,7 +9,7 @@
 // except according to those terms.
 
 use borrow_check::{Context, MirBorrowckCtxt};
-use borrow_check::nll::region_infer::{Cause, RegionInferenceContext};
+use borrow_check::nll::region_infer::{RootCause, RegionInferenceContext};
 use dataflow::BorrowData;
 use rustc::mir::{Local, Location, Mir};
 use rustc::mir::visit::{MirVisitable, PlaceContext, Visitor};
@@ -28,8 +28,8 @@ impl<'cx, 'gcx, 'tcx> MirBorrowckCtxt<'cx, 'gcx, 'tcx> {
             if let Some(cause) = regioncx.why_region_contains_point(borrow.region, context.loc) {
                 let mir = self.mir;
 
-                match *cause.root_cause() {
-                    Cause::LiveVar(local, location) => {
+                match cause.root_cause {
+                    RootCause::LiveVar(local, location) => {
                         match find_regular_use(&mir, regioncx, borrow, location, local) {
                             Some(p) => {
                                 err.span_label(
@@ -47,7 +47,7 @@ impl<'cx, 'gcx, 'tcx> MirBorrowckCtxt<'cx, 'gcx, 'tcx> {
                         }
                     }
 
-                    Cause::DropVar(local, location) => {
+                    RootCause::DropVar(local, location) => {
                         match find_drop_use(&mir, regioncx, borrow, location, local) {
                             Some(p) => {
                                 let local_name = &mir.local_decls[local].name.unwrap();
