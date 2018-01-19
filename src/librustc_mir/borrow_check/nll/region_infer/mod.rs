@@ -103,7 +103,7 @@ pub(crate) struct Cause {
     outlives: u32,
 
     /// Represents what is live for this particular cause
-    pub root_cause: RootCause
+    root_cause: RootCause
 }
 
 impl Cause {
@@ -332,13 +332,13 @@ impl<'tcx> RegionInferenceContext<'tcx> {
                 self.liveness_constraints.add(
                     variable,
                     point_index,
-                    &Cause::new(RootCause::UniversalRegion(variable)),
+                    Cause::new(RootCause::UniversalRegion(variable)),
                 );
             }
 
             // Add `end(X)` into the set for X.
             self.liveness_constraints
-                .add(variable, variable, &Cause::new(RootCause::UniversalRegion(variable)));
+                .add(variable, variable, Cause::new(RootCause::UniversalRegion(variable)));
         }
     }
 
@@ -369,7 +369,7 @@ impl<'tcx> RegionInferenceContext<'tcx> {
     }
 
     /// Returns the *reason* that the region `r` contains the given point.
-    pub(crate) fn why_region_contains_point<R>(&self, r: R, p: Location) -> Option<Rc<Cause>>
+    pub(crate) fn why_region_contains_point<R>(&self, r: R, p: Location) -> Option<&Cause>
     where
         R: ToRegionVid,
     {
@@ -392,13 +392,13 @@ impl<'tcx> RegionInferenceContext<'tcx> {
     ///
     /// Returns `true` if this constraint is new and `false` is the
     /// constraint was already present.
-    pub(super) fn add_live_point(&mut self, v: RegionVid, point: Location, cause: &Cause) -> bool {
+    pub(super) fn add_live_point(&mut self, v: RegionVid, point: Location, cause: Cause) -> bool {
         debug!("add_live_point({:?}, {:?})", v, point);
         assert!(self.inferred_values.is_none(), "values already inferred");
         debug!("add_live_point: @{:?} Adding cause {:?}", point, cause);
 
         let element = self.elements.index(point);
-        if self.liveness_constraints.add(v, element, &cause) {
+        if self.liveness_constraints.add(v, element, cause) {
             true
         } else {
             false
@@ -1292,7 +1292,7 @@ trait CauseExt {
     fn outlives(&self, constraint_location: Location, constraint_span: Span) -> Cause;
 }
 
-impl CauseExt for Rc<Cause> {
+impl CauseExt for Cause {
     /// Creates a derived cause due to an outlives constraint.
     fn outlives(&self, _constraint_location: Location, _constraint_span: Span) -> Cause {
         Cause {
@@ -1314,6 +1314,10 @@ impl Cause {
         let mut string = String::new();
         self.root_cause.push_diagnostic_string(mir, &mut string);
         diag.note(&string);
+    }
+
+    pub(crate) fn root_cause(&self) -> &RootCause {
+        &self.root_cause
     }
 }
 impl RootCause {
@@ -1359,22 +1363,4 @@ impl RootCause {
             //}
         }
     }
-
-    //pub(crate) fn root_cause(&self) -> &Cause {
-    //    match self {
-    //        Cause::LiveVar(..) |
-    //        Cause::DropVar(..) |
-    //        Cause::LiveOther(..) |
-    //        Cause::UniversalRegion(..) => {
-    //            self
-    //        }
-
-    //        Cause::Outlives {
-    //            original_cause,
-    //            ..
-    //        } => {
-    //            original_cause.root_cause()
-    //        }
-    //    }
-    //}
 }

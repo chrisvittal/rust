@@ -54,7 +54,7 @@ impl<'cx, 'tcx> SubtypeConstraintGenerator<'cx, 'tcx> {
         for (region, location, cause) in liveness_set {
             debug!("generate: {:#?} is live at {:#?}", region, location);
             let region_vid = self.to_region_vid(region);
-            self.regioncx.add_live_point(region_vid, *location, &cause);
+            self.regioncx.add_live_point(region_vid, *location, cause.clone());
         }
 
         for OutlivesSet { locations, data } in outlives_sets {

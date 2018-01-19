@@ -199,7 +199,7 @@ pub(super) struct RegionValues {
     causes: Option<CauseMap>,
 }
 
-type CauseMap = FxHashMap<(RegionVid, RegionElementIndex), Rc<Cause>>;
+type CauseMap = FxHashMap<(RegionVid, RegionElementIndex), Cause>;
 
 impl RegionValues {
     pub(super) fn new(
@@ -225,9 +225,9 @@ impl RegionValues {
 
     /// Adds the given element to the value for the given region. Returns true if
     /// the element is newly added (i.e., was not already present).
-    pub(super) fn add<E: ToElementIndex>(&mut self, r: RegionVid, elem: E, cause: &Cause) -> bool {
+    pub(super) fn add<E: ToElementIndex>(&mut self, r: RegionVid, elem: E, cause: Cause) -> bool {
         let i = self.elements.index(elem);
-        self.add_internal(r, i, |_| cause.clone())
+        self.add_internal(r, i, |_| cause)
     }
 
     /// Internal method to add an element to a region.
@@ -242,7 +242,7 @@ impl RegionValues {
             debug!("add(r={:?}, i={:?})", r, self.elements.to_element(i));
 
             if let Some(causes) = &mut self.causes {
-                let cause = Rc::new(make_cause(causes));
+                let cause = make_cause(causes);
                 causes.insert((r, i), cause);
             }
 
@@ -251,8 +251,8 @@ impl RegionValues {
             if let Some(causes) = &mut self.causes {
                 let cause = make_cause(causes);
                 let old_cause = causes.get_mut(&(r, i)).unwrap();
-                if cause < **old_cause {
-                    *old_cause = Rc::new(cause);
+                if cause < *old_cause {
+                    *old_cause = cause;
                     return true;
                 }
             }
@@ -427,10 +427,10 @@ impl RegionValues {
     ///
     /// Returns None if cause tracking is disabled or `elem` is not
     /// actually found in `r`.
-    pub(super) fn cause<T: ToElementIndex>(&self, r: RegionVid, elem: T) -> Option<Rc<Cause>> {
+    pub(super) fn cause<T: ToElementIndex>(&self, r: RegionVid, elem: T) -> Option<&Cause> {
         let index = self.elements.index(elem);
         if let Some(causes) = &self.causes {
-            causes.get(&(r, index)).cloned()
+            causes.get(&(r, index))
         } else {
             None
         }

@@ -28,7 +28,7 @@ impl<'cx, 'gcx, 'tcx> MirBorrowckCtxt<'cx, 'gcx, 'tcx> {
             if let Some(cause) = regioncx.why_region_contains_point(borrow.region, context.loc) {
                 let mir = self.mir;
 
-                match cause.root_cause {
+                match *cause.root_cause() {
                     RootCause::LiveVar(local, location) => {
                         match find_regular_use(&mir, regioncx, borrow, location, local) {
                             Some(p) => {

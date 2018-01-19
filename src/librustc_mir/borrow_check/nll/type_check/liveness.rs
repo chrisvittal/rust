@@ -9,14 +9,9 @@
 // except according to those terms.
 
 use dataflow::{FlowAtLocation, FlowsAtLocation};
-<<<<<<< HEAD
-use borrow_check::nll::region_infer::Cause;
 use dataflow::MaybeInitializedPlaces;
-=======
-use borrow_check::nll::region_infer::{Cause, RootCause};
-use dataflow::MaybeInitializedLvals;
->>>>>>> Refactor Cause using new RootCause enum
 use dataflow::move_paths::{HasMoveData, MoveData};
+use borrow_check::nll::region_infer::{Cause, RootCause};
 use rustc::mir::{BasicBlock, Location, Mir};
 use rustc::mir::Local;
 use rustc::ty::{self, Ty, TyCtxt, TypeFoldable};
@@ -192,7 +187,6 @@ impl<'gen, 'typeck, 'flow, 'gcx, 'tcx> TypeLivenessGenerator<'gen, 'typeck, 'flo
             location
         );
 
-<<<<<<< HEAD
         // If we end visiting the same type twice (usually due to a cycle involving
         // associated types), we need to ensure that its region types match up with the type
         // we added to the 'known' map the first time around. For this reason, we need
@@ -223,43 +217,6 @@ impl<'gen, 'typeck, 'flow, 'gcx, 'tcx> TypeLivenessGenerator<'gen, 'typeck, 'flo
                     Ok(result) => result,
                     Err(ErrorReported) => {
                         continue;
-=======
-        let tcx = self.cx.infcx.tcx;
-        let mut types = vec![(dropped_ty, 0)];
-        let mut known = FxHashSet();
-        while let Some((ty, depth)) = types.pop() {
-            let span = DUMMY_SP; // FIXME
-            let result = match tcx.dtorck_constraint_for_ty(span, dropped_ty, depth, ty) {
-                Ok(result) => result,
-                Err(ErrorReported) => {
-                    continue;
-                }
-            };
-
-            let ty::DtorckConstraint {
-                outlives,
-                dtorck_types,
-            } = result;
-
-            // All things in the `outlives` array may be touched by
-            // the destructor and must be live at this point.
-            for outlive in outlives {
-                let cause = Cause::new(RootCause::DropVar(dropped_local, location));
-                self.push_type_live_constraint(outlive, location, cause);
-            }
-
-            // However, there may also be some types that
-            // `dtorck_constraint_for_ty` could not resolve (e.g.,
-            // associated types and parameters). We need to normalize
-            // associated types here and possibly recursively process.
-            for ty in dtorck_types {
-                let ty = self.cx.normalize(&ty, location);
-                let ty = self.cx.infcx.resolve_type_and_region_vars_if_possible(&ty);
-                match ty.sty {
-                    ty::TyParam(..) | ty::TyProjection(..) | ty::TyAnon(..) => {
-                        let cause = Cause::new(RootCause::DropVar(dropped_local, location));
-                        self.push_type_live_constraint(ty, location, cause);
->>>>>>> Refactor Cause using new RootCause enum
                     }
                 };
 
@@ -271,7 +228,7 @@ impl<'gen, 'typeck, 'flow, 'gcx, 'tcx> TypeLivenessGenerator<'gen, 'typeck, 'flo
                 // All things in the `outlives` array may be touched by
                 // the destructor and must be live at this point.
                 for outlive in outlives {
-                    let cause = Cause::DropVar(dropped_local, location);
+                    let cause = Cause::new(RootCause::DropVar(dropped_local, location));
                     kind_constraints.push((outlive, location, cause));
                 }
 
@@ -288,7 +245,7 @@ impl<'gen, 'typeck, 'flow, 'gcx, 'tcx> TypeLivenessGenerator<'gen, 'typeck, 'flo
                     let ty = cx.infcx.resolve_type_and_region_vars_if_possible(&ty);
                     match ty.sty {
                         ty::TyParam(..) | ty::TyProjection(..) | ty::TyAnon(..) => {
-                            let cause = Cause::DropVar(dropped_local, location);
+                            let cause = Cause::new(RootCause::DropVar(dropped_local, location));
                             type_constraints.push((ty, location, cause));
                         }
 

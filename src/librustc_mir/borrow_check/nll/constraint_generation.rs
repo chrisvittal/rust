@@ -143,7 +143,7 @@ impl<'cx, 'cg, 'gcx, 'tcx> ConstraintGeneration<'cx, 'cg, 'gcx, 'tcx> {
             .tcx
             .for_each_free_region(&live_ty, |live_region| {
                 let vid = live_region.to_region_vid();
-                self.regioncx.add_live_point(vid, location, &cause);
+                self.regioncx.add_live_point(vid, location, cause.clone());
             });
     }
 
