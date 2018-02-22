@@ -129,19 +129,6 @@ pub(crate) enum RootCause {
 
     /// part of the initial set of values for a universally quantified region
     UniversalRegion(RegionVid),
-
-    ///// Element E was added to R because there was some
-    ///// outlives obligation `R: R1 @ P` and `R1` contained `E`.
-    //Outlives {
-    //    /// the reason that R1 had E
-    //    original_cause: Rc<Cause>,
-
-    //    /// the point P from the relation
-    //    constraint_location: Location,
-
-    //    /// The span indicating why we added the outlives constraint.
-    //    constraint_span: Span,
-    //},
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1348,19 +1335,6 @@ impl RootCause {
                     region_vid
                 ));
             }
-
-            //Cause::Outlives {
-            //    original_cause,
-            //    constraint_location,
-            //    constraint_span: _,
-            //} => {
-            //    string.push_str(&format!(
-            //        "because of an outlives relation created at `{:?}`\n",
-            //        constraint_location
-            //    ));
-
-            //    original_cause.push_diagnostic_string(mir, string);
-            //}
         }
     }
 }
