@@ -92,11 +92,30 @@ struct RegionDefinition<'tcx> {
     external_name: Option<ty::Region<'tcx>>,
 }
 
-/// NB: The variants in `Cause` are intentionally ordered. Lower
+/// FIXME(chrisvittal): Better docs of what a `Cause` is.
+///
+/// Field order is significant here as more directly related causes have more?(FIXME) `outlives`
+/// links.
+#[derive(Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
+pub(crate) struct Cause {
+    /// Length of an 'outlives' chain.
+    outlives: u32,
+
+    /// Represents what is live for this particular cause
+    root_cause: RootCause
+}
+
+impl Cause {
+    pub(crate) fn new(root_cause: RootCause) -> Self {
+        Self { outlives: 0, root_cause }
+    }
+}
+
+/// NB: The variants in `RootCause` are intentionally ordered. Lower
 /// values are preferred when it comes to error messages. Do not
 /// reorder willy nilly.
 #[derive(Clone, Debug, PartialOrd, Ord, PartialEq, Eq)]
-pub(crate) enum Cause {
+pub(crate) enum RootCause {
     /// point inserted because Local was live at the given Location
     LiveVar(Local, Location),
 
@@ -109,19 +128,6 @@ pub(crate) enum Cause {
 
     /// part of the initial set of values for a universally quantified region
     UniversalRegion(RegionVid),
-
-    /// Element E was added to R because there was some
-    /// outlives obligation `R: R1 @ P` and `R1` contained `E`.
-    Outlives {
-        /// the reason that R1 had E
-        original_cause: Rc<Cause>,
-
-        /// the point P from the relation
-        constraint_location: Location,
-
-        /// The span indicating why we added the outlives constraint.
-        constraint_span: Span,
-    },
 }
 
 pub(crate) struct RegionCausalInfo {
@@ -310,13 +316,13 @@ impl<'tcx> RegionInferenceContext<'tcx> {
                 self.liveness_constraints.add(
                     variable,
                     point_index,
-                    &Cause::UniversalRegion(variable),
+                    Cause::new(RootCause::UniversalRegion(variable)),
                 );
             }
 
             // Add `end(X)` into the set for X.
             self.liveness_constraints
-                .add(variable, variable, &Cause::UniversalRegion(variable));
+                .add(variable, variable, Cause::new(RootCause::UniversalRegion(variable)));
         }
     }
 
@@ -359,13 +365,13 @@ impl<'tcx> RegionInferenceContext<'tcx> {
     ///
     /// Returns `true` if this constraint is new and `false` is the
     /// constraint was already present.
-    pub(super) fn add_live_point(&mut self, v: RegionVid, point: Location, cause: &Cause) -> bool {
+    pub(super) fn add_live_point(&mut self, v: RegionVid, point: Location, cause: Cause) -> bool {
         debug!("add_live_point({:?}, {:?})", v, point);
         assert!(self.inferred_values.is_none(), "values already inferred");
         debug!("add_live_point: @{:?} Adding cause {:?}", point, cause);
 
         let element = self.elements.index(point);
-        if self.liveness_constraints.add(v, element, &cause) {
+        if self.liveness_constraints.add(v, element, cause) {
             true
         } else {
             false
@@ -1254,26 +1260,62 @@ trait CauseExt {
     fn outlives(&self, constraint_location: Location, constraint_span: Span) -> Cause;
 }
 
-impl CauseExt for Rc<Cause> {
+impl CauseExt for Cause {
     /// Creates a derived cause due to an outlives constraint.
-    fn outlives(&self, constraint_location: Location, constraint_span: Span) -> Cause {
-        Cause::Outlives {
-            original_cause: self.clone(),
-            constraint_location,
-            constraint_span,
+    fn outlives(&self, _constraint_location: Location, _constraint_span: Span) -> Cause {
+        Cause {
+            outlives: self.outlives + 1,
+            root_cause: self.root_cause.clone()
         }
     }
 }
 
 impl Cause {
-    pub(crate) fn root_cause(&self) -> &Cause {
-        match self {
-            Cause::LiveVar(..)
-            | Cause::DropVar(..)
-            | Cause::LiveOther(..)
-            | Cause::UniversalRegion(..) => self,
+    pub(crate) fn label_diagnostic(&self, mir: &Mir<'_>, diag: &mut DiagnosticBuilder<'_>) {
+        // The cause information is pretty messy. Only dump it as an
+        // internal debugging aid if -Znll-dump-cause is given.
+        let nll_dump_cause = ty::tls::with(|tcx| tcx.sess.nll_dump_cause());
+        if !nll_dump_cause {
+            return;
+        }
 
-            Cause::Outlives { original_cause, .. } => original_cause.root_cause(),
+        let mut string = String::new();
+        self.root_cause.push_diagnostic_string(mir, &mut string);
+        diag.note(&string);
+    }
+
+    pub(crate) fn root_cause(&self) -> &RootCause {
+        &self.root_cause
+    }
+}
+impl RootCause {
+    fn push_diagnostic_string(&self, _mir: &Mir<'_>, string: &mut String) {
+        match self {
+            RootCause::LiveVar(local, location) => {
+                string.push_str(&format!("because `{:?}` is live at {:?}", local, location));
+            }
+
+            RootCause::DropVar(local, location) => {
+                string.push_str(&format!(
+                    "because `{:?}` is dropped at {:?}",
+                    local,
+                    location
+                ));
+            }
+
+            RootCause::LiveOther(location) => {
+                string.push_str(&format!(
+                    "because of a general liveness constraint at {:?}",
+                    location
+                ));
+            }
+
+            RootCause::UniversalRegion(region_vid) => {
+                string.push_str(&format!(
+                    "because `{:?}` is universally quantified",
+                    region_vid
+                ));
+            }
         }
     }
 }

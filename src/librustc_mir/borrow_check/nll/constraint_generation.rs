@@ -20,7 +20,7 @@ use rustc::ty::subst::Substs;
 use rustc::ty::fold::TypeFoldable;
 
 use super::ToRegionVid;
-use super::region_infer::{RegionInferenceContext, Cause};
+use super::region_infer::{RegionInferenceContext, Cause, RootCause};
 
 pub(super) fn generate_constraints<'cx, 'gcx, 'tcx>(
     infcx: &InferCtxt<'cx, 'gcx, 'tcx>,
@@ -53,14 +53,22 @@ impl<'cg, 'cx, 'gcx, 'tcx> Visitor<'tcx> for ConstraintGeneration<'cg, 'cx, 'gcx
     /// We sometimes have `substs` within an rvalue, or within a
     /// call. Make them live at the location where they appear.
     fn visit_substs(&mut self, substs: &&'tcx Substs<'tcx>, location: Location) {
-        self.add_regular_live_constraint(*substs, location, Cause::LiveOther(location));
+        self.add_regular_live_constraint(
+            *substs,
+            location,
+            Cause::new(RootCause::LiveOther(location))
+        );
         self.super_substs(substs);
     }
 
     /// We sometimes have `region` within an rvalue, or within a
     /// call. Make them live at the location where they appear.
     fn visit_region(&mut self, region: &ty::Region<'tcx>, location: Location) {
-        self.add_regular_live_constraint(*region, location, Cause::LiveOther(location));
+        self.add_regular_live_constraint(
+            *region,
+            location,
+            Cause::new(RootCause::LiveOther(location))
+        );
         self.super_region(region);
     }
 
@@ -76,7 +84,11 @@ impl<'cg, 'cx, 'gcx, 'tcx> Visitor<'tcx> for ConstraintGeneration<'cg, 'cx, 'gcx
                           ty_context);
             }
             TyContext::Location(location) => {
-                self.add_regular_live_constraint(*ty, location, Cause::LiveOther(location));
+                self.add_regular_live_constraint(
+                    *ty,
+                    location,
+                    Cause::new(RootCause::LiveOther(location))
+                );
             }
         }
 
@@ -86,7 +98,11 @@ impl<'cg, 'cx, 'gcx, 'tcx> Visitor<'tcx> for ConstraintGeneration<'cg, 'cx, 'gcx
     /// We sometimes have `closure_substs` within an rvalue, or within a
     /// call. Make them live at the location where they appear.
     fn visit_closure_substs(&mut self, substs: &ClosureSubsts<'tcx>, location: Location) {
-        self.add_regular_live_constraint(*substs, location, Cause::LiveOther(location));
+        self.add_regular_live_constraint(
+            *substs,
+            location,
+            Cause::new(RootCause::LiveOther(location))
+        );
         self.super_closure_substs(substs);
     }
 
@@ -127,7 +143,7 @@ impl<'cx, 'cg, 'gcx, 'tcx> ConstraintGeneration<'cx, 'cg, 'gcx, 'tcx> {
             .tcx
             .for_each_free_region(&live_ty, |live_region| {
                 let vid = live_region.to_region_vid();
-                self.regioncx.add_live_point(vid, location, &cause);
+                self.regioncx.add_live_point(vid, location, cause.clone());
             });
     }
 

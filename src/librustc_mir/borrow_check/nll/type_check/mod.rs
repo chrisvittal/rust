@@ -11,7 +11,7 @@
 //! This pass type-checks the MIR to ensure it is not broken.
 #![allow(unreachable_code)]
 
-use borrow_check::nll::region_infer::Cause;
+use borrow_check::nll::region_infer::{Cause, RootCause};
 use borrow_check::nll::region_infer::ClosureRegionRequirementsExt;
 use borrow_check::nll::universal_regions::UniversalRegions;
 use dataflow::FlowAtLocation;
@@ -900,7 +900,7 @@ impl<'a, 'gcx, 'tcx> TypeChecker<'a, 'gcx, 'tcx> {
                     self.constraints.liveness_set.push((
                         late_bound_region,
                         term_location,
-                        Cause::LiveOther(term_location),
+                        Cause::new(RootCause::LiveOther(term_location)),
                     ));
                 }
 
