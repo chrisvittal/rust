@@ -9,7 +9,7 @@
 // except according to those terms.
 
 use borrow_check::{Context, MirBorrowckCtxt};
-use borrow_check::nll::region_infer::{Cause, RegionInferenceContext};
+use borrow_check::nll::region_infer::{RootCause, RegionInferenceContext};
 use dataflow::BorrowData;
 use rustc::mir::{Local, Location, Mir};
 use rustc::mir::visit::{MirVisitable, PlaceContext, Visitor};
@@ -39,7 +39,7 @@ impl<'cx, 'gcx, 'tcx> MirBorrowckCtxt<'cx, 'gcx, 'tcx> {
             let cause_info = self.nonlexical_cause_info.as_ref().unwrap();
             if let Some(cause) = cause_info.why_region_contains_point(borrow.region, context.loc) {
                 match *cause.root_cause() {
-                    Cause::LiveVar(local, location) => {
+                    RootCause::LiveVar(local, location) => {
                         match find_regular_use(mir, regioncx, borrow, location, local) {
                             Some(p) => {
                                 err.span_label(
@@ -57,7 +57,7 @@ impl<'cx, 'gcx, 'tcx> MirBorrowckCtxt<'cx, 'gcx, 'tcx> {
                         }
                     }
 
-                    Cause::DropVar(local, location) => {
+                    RootCause::DropVar(local, location) => {
                         match find_drop_use(mir, regioncx, borrow, location, local) {
                             Some(p) => {
                                 let local_name = mir.local_decls[local].name.unwrap();
@@ -80,7 +80,7 @@ impl<'cx, 'gcx, 'tcx> MirBorrowckCtxt<'cx, 'gcx, 'tcx> {
                         }
                     }
 
-                    Cause::UniversalRegion(region_vid) => {
+                    RootCause::UniversalRegion(region_vid) => {
                         if let Some(region) = regioncx.to_error_region(region_vid) {
                             self.tcx.note_and_explain_free_region(
                                 err,

@@ -9,9 +9,9 @@
 // except according to those terms.
 
 use dataflow::{FlowAtLocation, FlowsAtLocation};
-use borrow_check::nll::region_infer::Cause;
 use dataflow::MaybeInitializedPlaces;
 use dataflow::move_paths::{HasMoveData, MoveData};
+use borrow_check::nll::region_infer::{Cause, RootCause};
 use rustc::mir::{BasicBlock, Location, Mir};
 use rustc::mir::Local;
 use rustc::ty::{self, Ty, TyCtxt, TypeFoldable};
@@ -83,7 +83,7 @@ impl<'gen, 'typeck, 'flow, 'gcx, 'tcx> TypeLivenessGenerator<'gen, 'typeck, 'flo
             .simulate_block(self.mir, bb, |location, live_locals| {
                 for live_local in live_locals.iter() {
                     let live_local_ty = self.mir.local_decls[live_local].ty;
-                    let cause = Cause::LiveVar(live_local, location);
+                    let cause = Cause::new(RootCause::LiveVar(live_local, location));
                     self.push_type_live_constraint(live_local_ty, location, cause);
                 }
             });
@@ -228,7 +228,7 @@ impl<'gen, 'typeck, 'flow, 'gcx, 'tcx> TypeLivenessGenerator<'gen, 'typeck, 'flo
                 // All things in the `outlives` array may be touched by
                 // the destructor and must be live at this point.
                 for outlive in outlives {
-                    let cause = Cause::DropVar(dropped_local, location);
+                    let cause = Cause::new(RootCause::DropVar(dropped_local, location));
                     kind_constraints.push((outlive, location, cause));
                 }
 
@@ -245,7 +245,7 @@ impl<'gen, 'typeck, 'flow, 'gcx, 'tcx> TypeLivenessGenerator<'gen, 'typeck, 'flo
                     let ty = cx.infcx.resolve_type_and_region_vars_if_possible(&ty);
                     match ty.sty {
                         ty::TyParam(..) | ty::TyProjection(..) | ty::TyAnon(..) => {
-                            let cause = Cause::DropVar(dropped_local, location);
+                            let cause = Cause::new(RootCause::DropVar(dropped_local, location));
                             type_constraints.push((ty, location, cause));
                         }
 
