@@ -1104,7 +1104,7 @@ impl<'tcx> RegionInferenceContext<'tcx> {
 
 impl RegionCausalInfo {
     /// Returns the *reason* that the region `r` contains the given point.
-    pub(super) fn why_region_contains_point<R>(&self, r: R, p: Location) -> Option<Rc<Cause>>
+    pub(super) fn why_region_contains_point<R>(&self, r: R, p: Location) -> Option<&Cause>
     where
         R: ToRegionVid,
     {
@@ -1271,51 +1271,7 @@ impl CauseExt for Cause {
 }
 
 impl Cause {
-    pub(crate) fn label_diagnostic(&self, mir: &Mir<'_>, diag: &mut DiagnosticBuilder<'_>) {
-        // The cause information is pretty messy. Only dump it as an
-        // internal debugging aid if -Znll-dump-cause is given.
-        let nll_dump_cause = ty::tls::with(|tcx| tcx.sess.nll_dump_cause());
-        if !nll_dump_cause {
-            return;
-        }
-
-        let mut string = String::new();
-        self.root_cause.push_diagnostic_string(mir, &mut string);
-        diag.note(&string);
-    }
-
     pub(crate) fn root_cause(&self) -> &RootCause {
         &self.root_cause
-    }
-}
-impl RootCause {
-    fn push_diagnostic_string(&self, _mir: &Mir<'_>, string: &mut String) {
-        match self {
-            RootCause::LiveVar(local, location) => {
-                string.push_str(&format!("because `{:?}` is live at {:?}", local, location));
-            }
-
-            RootCause::DropVar(local, location) => {
-                string.push_str(&format!(
-                    "because `{:?}` is dropped at {:?}",
-                    local,
-                    location
-                ));
-            }
-
-            RootCause::LiveOther(location) => {
-                string.push_str(&format!(
-                    "because of a general liveness constraint at {:?}",
-                    location
-                ));
-            }
-
-            RootCause::UniversalRegion(region_vid) => {
-                string.push_str(&format!(
-                    "because `{:?}` is universally quantified",
-                    region_vid
-                ));
-            }
-        }
     }
 }
